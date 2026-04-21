@@ -2,6 +2,7 @@
 # data_loader.py — V19.0 Data fetching and alignment
 # OKX OHLCV + BTC cross-asset + derivatives (funding/OI)
 # FIX-1: forward-fill ONLY — no bfill (prevents future leak)
+# FIX-2: 2-phase fetch (recent + history) for full 12000 candles
 # ============================================================
 
 import numpy as np
@@ -17,13 +18,14 @@ def fetch_okx_ohlcv(symbol='ETH-USDT', timeframe='4H', n_candles=12000):
     all_candles = []
     limit = 100
     end_ts = None
+    # Phase 1: recent candles (OKX /market/candles covers ~1440 bars max)
+    url_recent = "https://www.okx.com/api/v5/market/candles"
     while len(all_candles) < n_candles:
-        url = "https://www.okx.com/api/v5/market/candles"
         params = {'instId': symbol, 'bar': timeframe, 'limit': str(limit)}
         if end_ts:
             params['after'] = str(end_ts)
         try:
-            resp = requests.get(url, params=params, timeout=30)
+            resp = requests.get(url_recent, params=params, timeout=30)
             data = resp.json()
             if 'data' not in data or len(data['data']) == 0:
                 break
@@ -37,6 +39,35 @@ def fetch_okx_ohlcv(symbol='ETH-USDT', timeframe='4H', n_candles=12000):
             print("  [WARN] API error: {}, retrying...".format(e))
             time.sleep(2)
             continue
+    print("  [INFO] Phase 1 (recent): {} candles".format(len(all_candles)))
+    # Phase 2: historical candles (goes further back in time)
+    if len(all_candles) < n_candles:
+        url_hist = "https://www.okx.com/api/v5/market/history-candles"
+        fail_count = 0
+        while len(all_candles) < n_candles and fail_count < 5:
+            params = {'instId': symbol, 'bar': timeframe, 'limit': str(limit)}
+            if end_ts:
+                params['after'] = str(end_ts)
+            try:
+                resp = requests.get(url_hist, params=params, timeout=30)
+                data = resp.json()
+                if 'data' not in data or len(data['data']) == 0:
+                    fail_count += 1
+                    time.sleep(1)
+                    continue
+                fail_count = 0
+                candles = data['data']
+                all_candles.extend(candles)
+                end_ts = int(candles[-1][0])
+                if len(candles) < limit:
+                    break
+                time.sleep(0.15)
+            except Exception as e:
+                print("  [WARN] History API error: {}, retrying...".format(e))
+                time.sleep(2)
+                fail_count += 1
+                continue
+        print("  [INFO] Phase 2 (history): {} total candles".format(len(all_candles)))
     if not all_candles:
         raise ValueError("No candles fetched from OKX")
     df = pd.DataFrame(all_candles, columns=[
@@ -59,6 +90,7 @@ def fetch_macro_daily():
     try:
         btc_candles = []
         end_ts = None
+        # Phase 1: recent BTC daily
         while len(btc_candles) < 2000:
             url = "https://www.okx.com/api/v5/market/candles"
             params = {'instId': 'BTC-USDT', 'bar': '1D', 'limit': '100'}
@@ -73,6 +105,31 @@ def fetch_macro_daily():
             if len(data['data']) < 100:
                 break
             time.sleep(0.15)
+        # Phase 2: historical BTC daily
+        if len(btc_candles) < 2000:
+            fail_count = 0
+            while len(btc_candles) < 2000 and fail_count < 5:
+                url_h = "https://www.okx.com/api/v5/market/history-candles"
+                params = {'instId': 'BTC-USDT', 'bar': '1D', 'limit': '100'}
+                if end_ts:
+                    params['after'] = str(end_ts)
+                try:
+                    resp = requests.get(url_h, params=params, timeout=30)
+                    data = resp.json()
+                    if 'data' not in data or len(data['data']) == 0:
+                        fail_count += 1
+                        time.sleep(1)
+                        continue
+                    fail_count = 0
+                    btc_candles.extend(data['data'])
+                    end_ts = int(data['data'][-1][0])
+                    if len(data['data']) < 100:
+                        break
+                    time.sleep(0.15)
+                except Exception:
+                    fail_count += 1
+                    time.sleep(2)
+                    continue
         btc_df = pd.DataFrame(btc_candles, columns=[
             'timestamp', 'open', 'high', 'low', 'close', 'vol',
             'volCcy', 'volCcyQuote', 'confirm'
