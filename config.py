@@ -16,7 +16,7 @@ SAFE_DEBUG = False
 # Bot: @Sistem_tradingbot | Group: alerta de mi ia
 # Topics: 971=Resultados, 972=Modelos, 973=Alertas, 974=Changelog
 TELEGRAM = {
-    'bot_token': '8723893197:AAF_YOUR_TOKEN_HERE',
+    'bot_token': '8723893197:8723893197:AAFfIORXd2Y-qQ8TclOq23afEPt_knr7xrU',
     'chat_id': '-1003505760554',
     'topics': {
         'resultados': 971,
