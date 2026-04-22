@@ -1,0 +1,43 @@
+name: Quant Validation Gate
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'outputs/**'
+      - 'quant_gate/**'
+      - 'tests/**'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'outputs/**'
+      - 'quant_gate/**'
+      - 'tests/**'
+
+jobs:
+  qvg-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install numpy pandas scipy pytest pyarrow
+
+      - name: Run QVG tests
+        run: pytest tests/ -v --tb=short
+
+      - name: Run full validation (if predictions exist)
+        run: |
+          if [ -f outputs/predictions.parquet ]; then
+            python -c "from quant_gate import validate; validate()"
+          else
+            echo "No predictions.parquet found -- skipping full validation"
+          fi
