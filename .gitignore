@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.ipynb_checkpoints/
+outputs/*.parquet
+outputs/*.csv
+outputs/*.json
+!outputs/.gitkeep
+v19_1.lock
