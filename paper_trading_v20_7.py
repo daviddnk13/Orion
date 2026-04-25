@@ -33,11 +33,13 @@ IC_BASELINE_PATH = '/home/ubuntu/orion/v20_6_results.json'  # If exists, read ba
 
 SYMBOL = 'ETH-USDT'
 EXCHANGE = 'okx'
-TIMEFRAME = '4h'
+TIMEFRAME = '4H'
 
 # Risk parameters (V20.6.1)
 TARGET_VOL = 0.15
 POSITION_CAP = 0.5
+SENSITIVITY = 1.0
+MAX_REDUCTION = 0.7
 DD_FLOOR = -0.50
 VOL_LOOKBACK = 42  # 7 days * 6 bars per day
 
@@ -51,7 +53,7 @@ CANDLE_SCHEDULE_HOURS = [0, 4, 8, 12, 16, 20]  # UTC
 CANDLE_DELAY_SECONDS = 150  # Wait 2.5 min after candle close
 
 # Telegram
-TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '8723893197:AAFfIORXd2Y-qQ8TclOq23afEPt_knr7xrU')
+TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '')
 TELEGRAM_CHAT_ID = '-1003505760554'
 TOPIC_ALERTS = 973
 TOPIC_RESULTS = 971
@@ -60,7 +62,7 @@ TOPIC_RESULTS = 971
 MAX_DD_GUARDRAIL = -0.40
 DRIFT_SIGMA = 4.0
 MAX_DRIFT_FEATURES = 5
-DATA_FEED_MAX_AGE_MINUTES = 10
+DATA_FEED_MAX_AGE_MINUTES = 30
 
 # ============================================================
 # TELEGRAM
@@ -447,6 +449,7 @@ def execution_loop():
         print("[DATA] Fetching OKX candles...")
         df = fetch_okx_ohlcv(symbol=SYMBOL, timeframe=TIMEFRAME, n_candles=200)
         print(f"[DATA] Got {len(df)} candles: {df['timestamp'].iloc[0]} -> {df['timestamp'].iloc[-1]}")
+        df = df.iloc[:-1]  # Drop incomplete current candle
 
         # Time alignment check
         last_candle_ts = df['timestamp'].iloc[-1]
@@ -499,25 +502,34 @@ def execution_loop():
         proba_high = float(model.predict(latest_features.reshape(1, -1))[0])
         print(f"[MODEL] P(HIGH) = {proba_high:.4f}")
 
-        # 7. Risk engine with gradual DD scalar
-        scale_raw, scale_final, current_dd = compute_risk_scalar(
-            proba_high,
-            state['equity_peak'],
-            state['equity']
-        )
+        # 7. Risk layer (V20.6.1) — ML scale + vol target + DD gradual
+        # 7a. ML scale from RiskEngine (V20.3 style)
+        ml_scale = 1.0 - np.clip(proba_high * SENSITIVITY, 0, MAX_REDUCTION)
 
-        # 8. Vol targeting scalar (separate from DD scalar)
-        # Compute current realized vol from recent data
+        # 7b. Volatility targeting (lagged realized vol)
         log_ret_series = pd.Series(df['log_ret'].values)
-        rv_current = log_ret_series.rolling(VOL_LOOKBACK).std().iloc[-1] * np.sqrt(365 * 6) if len(log_ret_series) >= VOL_LOOKBACK else 0.15
+        # Use lagged 42-bar realized vol to avoid lookahead bias
+        rv_series = log_ret_series.rolling(VOL_LOOKBACK).std().shift(1) * np.sqrt(365 * 6)
+        if len(rv_series) >= VOL_LOOKBACK and pd.notna(rv_series.iloc[-1]):
+            rv_current = rv_series.iloc[-1]
+        else:
+            rv_current = TARGET_VOL  # fallback if insufficient data
         vol_scalar = compute_vol_scalar(rv_current, TARGET_VOL, max_leverage=2.0)
         print(f"[VOL] Current vol: {rv_current:.4f}, scalar: {vol_scalar:.3f}")
 
-        # Combine ML scale with vol scalar (vol scalar applied BEFORE ML, per spec?)
-        # Actually in V20.6: ML scale first, then vol targeting multiplies it
-        scale_before_cap = scale_final * vol_scalar
-        position_size = min(scale_before_cap, POSITION_CAP)
-        print(f"[RISK] Scale raw={scale_raw:.3f}, final={scale_final:.3f}, vol_scalar={vol_scalar:.3f}, position={position_size:.3f}")
+        # 7c. Combine ML scale + vol, apply position cap → scale_raw (before DD)
+        scale_vol = ml_scale * vol_scalar
+        scale_raw = min(scale_vol, POSITION_CAP)
+
+        # 7d. Gradual DD scalar (drawdown-based reduction)
+        current_equity = state['equity']
+        equity_peak = state['equity_peak']
+        dd = (current_equity - equity_peak) / equity_peak if equity_peak > 0 else 0.0
+        dd_scalar = np.clip(1.0 + dd / abs(DD_FLOOR), 0.1, 1.0)
+        scale_final = scale_raw * dd_scalar
+        position_size = scale_final
+        current_dd = dd  # for guardrail and logging
+        print(f"[RISK] ML={ml_scale:.3f}, vol={vol_scalar:.3f}, cap={scale_raw:.3f}, dd_scalar={dd_scalar:.3f}, final={position_size:.3f}")
 
         # 9. Compute theoretical return for this bar
         # We need the forward return of this bar (from previous to current close)
@@ -604,7 +616,7 @@ Proba: {proba_high:.3f} | Scale: {scale_raw:.3f}
 Position: {position_size*100:.0f}% | DD: {current_dd*100:.1f}%
 Latency: {log_entry['execution_latency_ms']}ms"""  # noqa: E501
             # Only send if not silent mode (configurable)
-            # tg_send(tg_text, topic_id=TOPIC_ALERTS)
+            tg_send(tg_text, topic_id=TOPIC_ALERTS)
 
         print(f"[CYCLE] Completed in {time.time() - start_time:.2f}s")
         print(f"  Prob(high)={proba_high:.3f}, position={position_size:.3f}, DD={current_dd:.2%}")
