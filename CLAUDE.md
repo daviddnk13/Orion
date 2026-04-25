@@ -350,3 +350,24 @@ Orion/
 **Last Updated**: 2026-04-25
 **Version**: V20.3 (Risk Engine Validation pending)
 **Status**:风险engine module approved, validation script needs rewrite
+
+---
+
+## EXECUTION RULES
+
+1. **ACT FIRST, ANALYZE LATER.** Maximum 60 seconds thinking before your first file edit. If you're reading a file for more than 2 minutes without writing, you're doing it wrong.
+
+2. **When given code to write, WRITE IT.** Don't re-read the entire file first. Don't analyze if the change is already applied. Open the file, go to the relevant section, make the edit, save.
+
+3. **When given a patch script, RUN IT.** Don't read the target file first to "understand" it. The patch script already knows what to change. Execute it.
+
+4. **One task = one commit.** Don't batch multiple unrelated changes. Small commits, fast pushes.
+
+5. **Always verify after editing:**
+   - `python3 -m py_compile <file>` for syntax
+   - `grep` to confirm the change landed
+   - Then commit + push immediately
+
+6. **Never spend more than 5 minutes on a single task.** If stuck, report what's blocking you instead of spinning.
+
+7. **Imports go at the top of the file.** When adding a new import, check line 1-15, add it, move on. Don't read the whole file.
