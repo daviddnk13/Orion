@@ -544,45 +544,68 @@ def main():
     # ------------------------------------------------------------
     # TEST 2: VOL-TARGET BASELINE
     # ------------------------------------------------------------
+        # ------------------------------------------------------------
+    # TEST 2: VOL-TARGET BASELINE
+    # ------------------------------------------------------------
     print("\n--- TEST 2: VOL-TARGET BASELINE ---")
-    baseline_wins = 0
-    ml_wins = 0
+    ml_wins_t2 = 0
+    baseline_wins_t2 = 0
+
+    # Pre-compute rv_7d on the FULL series (avoids NaN from rolling on isolated test windows)
+    log_ret_full = df['log_ret'].values
+    rv_7d_full_series = pd.Series(log_ret_full).rolling(42).std() * np.sqrt(6)
+
     for fold_i, fold_data in enumerate(fold_results):
-        # Compute baseline: scale_baseline = clip(median(realized_vol_7d) / realized_vol_7d, 0.3, 1.0)
-        # Use training data: we need rv_7d from training period
         train_idx = folds[fold_i][0]
-        # Compute rv_7d for training period from raw data
-        log_ret_all = df['log_ret'].values
-        rv_7d_train = pd.Series(log_ret_all[train_idx]).rolling(42).std().values * np.sqrt(6)
-        median_rv = np.nanmedian(rv_7d_train)
-        # For test period, compute rv_7d
         test_idx = folds[fold_i][1]
-        rv_7d_test = pd.Series(log_ret_all[test_idx]).rolling(42).std().values * np.sqrt(6)
-        scale_baseline = np.clip(median_rv / (rv_7d_test + 1e-8), 0.3, 1.0)
-        # ML scale
-        scale_ml = fold_data['position_scale']
 
-        # Compute portfolio stats
+        # 1. target_vol = median of rv_7d in TRAINING period
+        rv_7d_train_vals = rv_7d_full_series.values[train_idx]
+        target_vol = np.nanmedian(rv_7d_train_vals)
+
+        # 2. realized_vol in test = slice from pre-computed full series (has history)
+        rv_7d_test_vals = rv_7d_full_series.values[test_idx]
+
+        # 3. scale_baseline = target_vol / realized_vol, clipped [0.0, 1.0]
+        scale_baseline = target_vol / (rv_7d_test_vals + 1e-8)
+        scale_baseline = np.clip(scale_baseline, 0.0, 1.0)
+
+        # 4. Shift by 1 bar (no look-ahead bias)
+        scale_baseline_shifted = np.roll(scale_baseline, 1)
+        scale_baseline_shifted[0] = scale_baseline[0]
+
+        # 5. Apply to returns
         returns_test = np.exp(fold_data['returns_log']) - 1
-        baseline_stats = portfolio_stats(scale_baseline * returns_test)
-        ml_stats = portfolio_stats(scale_ml * returns_test)
+        returns_baseline = scale_baseline_shifted * returns_test
+        returns_ml = fold_data['position_scale'] * returns_test
 
-        ml_sharpe = ml_stats['sharpe']
-        base_sharpe = baseline_stats['sharpe']
+        # 6. Compute stats
+        baseline_stats_t2 = portfolio_stats(returns_baseline)
+        ml_stats_t2 = portfolio_stats(returns_ml)
+
+        ml_sharpe = ml_stats_t2['sharpe']
+        base_sharpe = baseline_stats_t2['sharpe']
+
+        # DEBUG
+        print(f"  [DEBUG BASELINE Fold {fold_i}]")
+        print(f"    target_vol:      {target_vol:.6f}")
+        print(f"    rv_7d_test:      mean={np.nanmean(rv_7d_test_vals):.6f}, std={np.nanstd(rv_7d_test_vals):.6f}")
+        print(f"    scale_baseline:  mean={np.nanmean(scale_baseline_shifted):.4f}, std={np.nanstd(scale_baseline_shifted):.4f}, min={np.nanmin(scale_baseline_shifted):.4f}, max={np.nanmax(scale_baseline_shifted):.4f}")
+        print(f"    NaN count:       scale={np.isnan(scale_baseline_shifted).sum()}, returns={np.isnan(returns_baseline).sum()}")
+
         if ml_sharpe > base_sharpe:
-            ml_wins += 1
+            ml_wins_t2 += 1
             status = "ML WINS"
         else:
-            baseline_wins += 1
+            baseline_wins_t2 += 1
             status = "BASELINE WINS"
-        print(f"  Fold {fold_i}: Sharpe ML={ml_sharpe:.3f} vs Baseline={base_sharpe:.3f} [{status}]")
-    test_verdicts['vol_target'] = ml_wins >= 2
-    print(f"  BASELINE VERDICT: ML wins {ml_wins}/4 [{'PASS' if test_verdicts['vol_target'] else 'FAIL'}]")
 
-    # ------------------------------------------------------------
-    # TEST 3: TURNOVER
-    # ------------------------------------------------------------
-    print("\n--- TEST 3: TURNOVER ---")
+        print(f"  Fold {fold_i}: Sharpe ML={ml_sharpe:.3f} vs Baseline={base_sharpe:.3f} [{status}]")
+
+    test_verdicts['vol_target'] = ml_wins_t2 >= 2
+    print(f"  BASELINE VERDICT: ML wins {ml_wins_t2}/4 [{'PASS' if test_verdicts['vol_target'] else 'FAIL'}]")
+
+print("\n--- TEST 3: TURNOVER ---")
     turnovers = []
     for fold_i, fold_data in enumerate(fold_results):
         scale = fold_data['position_scale']
