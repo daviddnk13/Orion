@@ -719,21 +719,16 @@ def next_candle_time():
     target += timedelta(seconds=CANDLE_DELAY_SECONDS)
     return target
 
-def run_scheduled():
-    """Wrapper to run execution and schedule next."""
-    execution_loop()
-    schedule_next()
-
-def schedule_next():
-    """Schedule next run."""
+def wait_and_run():
+    """Sleep until next candle, then execute."""
     next_run = next_candle_time()
     now = datetime.utcnow()
-    delay_seconds = (next_run - now).total_seconds()
-    if delay_seconds <= 0:
-        delay_seconds = 4 * 3600  # fallback
-
-    print(f"[SCHED] Next run at {next_run.isoformat()} (in {delay_seconds/60:.0f} min)")
-    schedule.every(delay_seconds).seconds.do(run_scheduled)
+    delay = (next_run - now).total_seconds()
+    if delay < 0:
+        delay = 60
+    print(f"[SCHED] Next run at {next_run.isoformat()} (in {delay/60:.0f} min)")
+    time.sleep(delay)
+    execution_loop()
 
 # ============================================================
 # MAIN ENTRYPOINT
@@ -765,19 +760,23 @@ def main():
     # Send startup notification
     tg_send(f"🚀 Orion V20.7 Paper Trading Engine STARTED\nUTC: {datetime.utcnow().isoformat()}", topic_id=TOPIC_ALERTS)
 
-    # Schedule first run
-    schedule_next()
-    schedule.every().day.at("00:05").do(daily_report)
-
     # Run loop
     while True:
         try:
-            schedule.run_pending()
-            time.sleep(1)
+            wait_and_run()
+            # Daily report after midnight candle
+            if datetime.utcnow().hour == 0:
+                try:
+                    daily_report()
+                except Exception as e:
+                    print(f"[DAILY] Error: {e}")
         except KeyboardInterrupt:
             print("\n[MAIN] Keyboard interrupt — exiting")
             tg_send("🛑 Orion V20.7 STOPPED (keyboard)", topic_id=TOPIC_ALERTS)
             break
+        except Exception as e:
+            print(f"[MAIN] Error: {e}")
+            time.sleep(60)
         except Exception as e:
             print(f"[MAIN] Unexpected error: {e}")
             time.sleep(60)  # Wait before retrying
