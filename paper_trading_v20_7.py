@@ -304,7 +304,16 @@ def load_state():
             'trading_halted': False,
             'proba_history': [],
             'return_history': [],
-            'start_time': datetime.now(timezone.utc).replace(tzinfo=None).isoformat() + 'Z'
+            'start_time': datetime.now(timezone.utc).replace(tzinfo=None).isoformat() + 'Z',
+            # V20.7 — Paper trading balance tracking
+            'virtual_balance': 10000.0,
+            'prev_price': None,
+            'prev_position_pct': 0.0,
+            'peak_balance': 10000.0,
+            'total_fees_paid': 0.0,
+            'start_date': datetime.now(timezone.utc).replace(tzinfo=None).date().isoformat(),
+            'daily_pnl': 0.0,
+            'daily_date': datetime.now(timezone.utc).replace(tzinfo=None).date().isoformat()
         }
 
     try:
@@ -322,6 +331,35 @@ def load_state():
         # Backup before loading
         with open(STATE_BACKUP_PATH, 'w') as f:
             json.dump(state, f, indent=2)
+
+        # Migration: add new V20.7 fields if missing
+        migrated = False
+        if 'virtual_balance' not in state:
+            state['virtual_balance'] = 10000.0
+            migrated = True
+        if 'prev_price' not in state:
+            state['prev_price'] = None
+            migrated = True
+        if 'prev_position_pct' not in state:
+            state['prev_position_pct'] = 0.0
+            migrated = True
+        if 'peak_balance' not in state:
+            state['peak_balance'] = state.get('virtual_balance', 10000.0)
+            migrated = True
+        if 'total_fees_paid' not in state:
+            state['total_fees_paid'] = 0.0
+            migrated = True
+        if 'start_date' not in state:
+            state['start_date'] = datetime.now(timezone.utc).replace(tzinfo=None).date().isoformat()
+            migrated = True
+        if 'daily_pnl' not in state:
+            state['daily_pnl'] = 0.0
+            migrated = True
+        if 'daily_date' not in state:
+            state['daily_date'] = datetime.now(timezone.utc).replace(tzinfo=None).date().isoformat()
+            migrated = True
+        if migrated:
+            print("[STATE] Migrated old state format — added V20.7 fields")
 
         print(f"[STATE] Loaded: equity={state['equity']:.4f}, peak={state['equity_peak']:.4f}")
         return state
@@ -367,7 +405,8 @@ def init_log():
         header = ','.join([
             'timestamp', 'price_close', 'proba_high', 'scale_raw', 'scale_final',
             'position_size', 'theoretical_return', 'equity_curve', 'current_drawdown',
-            'volatility_estimate', 'execution_latency_ms', 'features_hash', 'drift_warning'
+            'volatility_estimate', 'execution_latency_ms', 'features_hash', 'drift_warning',
+            'virtual_balance', 'cycle_pnl', 'total_fees', 'dd_from_peak'
         ]) + '\n'
         with open(LOG_PATH, 'w') as f:
             f.write(header)
@@ -388,7 +427,11 @@ def log_bar(data_dict):
         f"{data_dict['volatility_estimate']:.6f}",
         f"{data_dict['execution_latency_ms']}",
         data_dict['features_hash'],
-        str(data_dict.get('drift_warning', False))
+        str(data_dict.get('drift_warning', False)),
+        f"{data_dict.get('virtual_balance', 0.0):.2f}",
+        f"{data_dict.get('cycle_pnl', 0.0):.2f}",
+        f"{data_dict.get('total_fees', 0.0):.2f}",
+        f"{data_dict.get('dd_from_peak', 0.0):.6f}"
     ]) + '\n'
     with open(LOG_PATH, 'a') as f:
         f.write(line)
@@ -499,6 +542,57 @@ def execution_loop():
         current_dd = dd  # for guardrail and logging
         print(f"[RISK] ML={ml_scale:.3f}, vol={vol_scalar:.3f}, cap={scale_raw:.3f}, dd_scalar={dd_scalar:.3f}, final={position_size:.3f}")
 
+        # 8. Paper Trading Virtual Balance PnL
+        current_price = df['close'].iloc[-1]
+        current_position_pct = position_size  # same as scale_final
+
+        # Retrieve previous cycle data from state
+        prev_price = state.get('prev_price')
+        prev_position_pct = state.get('prev_position_pct', 0.0)
+        virtual_balance = state.get('virtual_balance', 10000.0)
+        peak_balance = state.get('peak_balance', virtual_balance)
+        total_fees_paid = state.get('total_fees_paid', 0.0)
+        daily_pnl = state.get('daily_pnl', 0.0)
+        daily_date = state.get('daily_date', datetime.now(timezone.utc).replace(tzinfo=None).date().isoformat())
+
+        # Check for day change to reset daily PnL
+        today = datetime.now(timezone.utc).replace(tzinfo=None).date().isoformat()
+        if daily_date != today:
+            daily_pnl = 0.0
+            daily_date = today
+
+        cycle_pnl = 0.0
+        cycle_fee = 0.0
+        if prev_price is not None and prev_price > 0:
+            # Calculate PnL from previous position
+            price_change_pct = (current_price - prev_price) / prev_price
+            position_usd = virtual_balance * prev_position_pct
+            raw_pnl = position_usd * price_change_pct
+            # Fee only if position changed between cycles
+            delta_position = abs(current_position_pct - prev_position_pct)
+            cycle_fee = virtual_balance * delta_position * 0.0015
+            net_pnl = raw_pnl - cycle_fee
+            virtual_balance += net_pnl
+            total_fees_paid += cycle_fee
+            peak_balance = max(peak_balance, virtual_balance)
+            cycle_pnl = net_pnl
+            daily_pnl += net_pnl
+        # else: first cycle, no PnL, cycle_fee stays 0
+
+        # Save updated virtual balance state
+        state['virtual_balance'] = virtual_balance
+        state['prev_price'] = current_price
+        state['prev_position_pct'] = current_position_pct
+        state['peak_balance'] = peak_balance
+        state['total_fees_paid'] = total_fees_paid
+        state['daily_pnl'] = daily_pnl
+        state['daily_date'] = daily_date
+
+        # Compute drawdown from peak (decimal)
+        dd_from_peak = (peak_balance - virtual_balance) / peak_balance if peak_balance > 0 else 0.0
+
+        print(f"[PnL] Cycle: {cycle_pnl:+.2f}, Fees: ${cycle_fee:.2f}, Balance: ${virtual_balance:.2f}, DDpeak: {dd_from_peak*100:.1f}%")
+
         # 9. Compute theoretical return for this bar
         # We need the forward return of this bar (from previous to current close)
         # But we're at the close of the current candle, so we need next candle's return
@@ -541,7 +635,11 @@ def execution_loop():
             'volatility_estimate': rv_current,
             'execution_latency_ms': int((time.time() - start_time) * 1000),
             'features_hash': features_hash,
-            'drift_warning': drift_warning
+            'drift_warning': drift_warning,
+            'virtual_balance': virtual_balance,
+            'cycle_pnl': cycle_pnl,
+            'total_fees': total_fees_paid,
+            'dd_from_peak': dd_from_peak
         }
         log_bar(log_entry)
         print(f"[LOG] Appended: {LOG_PATH}")

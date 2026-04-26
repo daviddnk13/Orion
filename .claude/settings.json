@@ -1,0 +1,34 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3:*)",
+      "Bash(python:*)",
+      "Bash(git:*)",
+      "Bash(grep:*)",
+      "Bash(cat:*)",
+      "Bash(sed:*)",
+      "Bash(head:*)",
+      "Bash(tail:*)",
+      "Bash(wc:*)",
+      "Bash(ls:*)",
+      "Bash(find:*)",
+      "Bash(pip:*)",
+      "Bash(pip3:*)",
+      "Bash(echo:*)",
+      "Bash(mkdir:*)",
+      "Bash(cp:*)",
+      "Bash(mv:*)",
+      "Bash(diff:*)",
+      "Bash(systemctl status:*)",
+      "Bash(journalctl:*)",
+      "Write(~/orion/**)"
+    ],
+    "deny": [
+      "Bash(rm -rf:*)",
+      "Bash(sudo rm:*)",
+      "Bash(chmod 777:*)",
+      "Bash(curl|bash:*)",
+      "Bash(wget|bash:*)"
+    ]
+  }
+}

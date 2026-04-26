@@ -1,0 +1,20 @@
+#!/bin/bash
+echo "Running pre-commit validation..."
+
+# Compile check all Python files
+ERRORS=0
+for f in $(git diff --cached --name-only --diff-filter=ACM | grep '\.py$'); do
+    python3 -m py_compile "$f" 2>&1
+    if [ $? -ne 0 ]; then
+        echo "FAIL: $f does not compile"
+        ERRORS=$((ERRORS + 1))
+    fi
+done
+
+if [ $ERRORS -ne 0 ]; then
+    echo "PRE-COMMIT BLOCKED: $ERRORS file(s) failed compilation"
+    exit 1
+fi
+
+echo "Pre-commit OK"
+exit 0
