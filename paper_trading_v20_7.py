@@ -221,8 +221,11 @@ def build_features(df):
     dd = (df['close'] - roll_max) / (roll_max + eps)
     df['drawdown_market'] = dd.fillna(0).shift(1)
 
-    # 15. tf_coherence -- TODO: fetch BTC, compute rolling corr(42). Currently — not available, set 0)
-    df['tf_coherence'] = 0.0
+    # 15. tf_coherence (momentum coherence: short vs long momentum agreement)
+    mom_short = df['close'] / df['close'].shift(6) - 1.0
+    mom_long = df['close'] / df['close'].shift(24) - 1.0
+    df['tf_coherence'] = (np.sign(mom_short) * np.sign(mom_long) *
+                          np.minimum(np.abs(mom_short), np.abs(mom_long))).fillna(0)
 
     # 16. dist_ema200 (distance to EMA200 in ATR units)
     ema_200 = df['close'].ewm(span=200).mean()
