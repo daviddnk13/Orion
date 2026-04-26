@@ -16,8 +16,7 @@ import sys
 import time
 import hashlib
 import requests
-import schedule
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from scipy.stats import pearsonr
 import joblib
 import lightgbm as lgb
@@ -54,9 +53,9 @@ CANDLE_DELAY_SECONDS = 150  # Wait 2.5 min after candle close
 
 # Telegram
 TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '')
-TELEGRAM_CHAT_ID = '-1003505760554'
-TOPIC_ALERTS = 973
-TOPIC_RESULTS = 971
+TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID', '-1003505760554')
+TOPIC_ALERTS = int(os.getenv('TOPIC_ALERTS', '973'))
+TOPIC_RESULTS = int(os.getenv('TOPIC_RESULTS', '971'))
 
 # Guardrails
 MAX_DD_GUARDRAIL = -0.40
@@ -222,7 +221,7 @@ def build_features(df):
     dd = (df['close'] - roll_max) / (roll_max + eps)
     df['drawdown_market'] = dd.fillna(0).shift(1)
 
-    # 15. tf_coherence (correlation BTC/ETH — not available, set 0)
+    # 15. tf_coherence -- TODO: fetch BTC, compute rolling corr(42). Currently — not available, set 0)
     df['tf_coherence'] = 0.0
 
     # 16. dist_ema200 (distance to EMA200 in ATR units)
@@ -276,27 +275,6 @@ def build_features(df):
     return df, raw_features
 
 # ============================================================
-# RISK ENGINE (V20.6.1 — Gradual DD scalar)
-# ============================================================
-def compute_risk_scalar(proba_high, equity_peak, equity_current):
-    """
-    Compute final position scale with V20.6.1 gradual risk layer.
-
-    Formula:
-        dd = (equity_current - equity_peak) / equity_peak
-        dd_scalar = clip(1 + dd / abs(DD_FLOOR), 0.1, 1.0)
-        scale_raw = proba_high * dd_scalar
-        scale_final = min(scale_raw, POSITION_CAP)
-
-    Returns: scale_raw, scale_final, dd
-    """
-    dd = (equity_current - equity_peak) / equity_peak if equity_peak > 0 else 0.0
-    dd_scalar = np.clip(1.0 + dd / abs(DD_FLOOR), 0.1, 1.0)
-    scale_raw = float(proba_high) * float(dd_scalar)
-    scale_final = min(scale_raw, POSITION_CAP)
-    return scale_raw, scale_final, dd
-
-# ============================================================
 # VOL TARGETING
 # ============================================================
 def compute_vol_scalar(current_vol, target_vol=TARGET_VOL, max_leverage=2.0):
@@ -323,7 +301,7 @@ def load_state():
             'trading_halted': False,
             'proba_history': [],
             'return_history': [],
-            'start_time': datetime.utcnow().isoformat() + 'Z'
+            'start_time': datetime.now(timezone.utc).replace(tzinfo=None).isoformat() + 'Z'
         }
 
     try:
@@ -332,7 +310,7 @@ def load_state():
 
         last_ts = datetime.fromisoformat(state['last_timestamp'].replace('Z', '+00:00')) if state.get('last_timestamp') else None
         if last_ts:
-            gap_hours = (datetime.utcnow().replace(tzinfo=last_ts.tzinfo) - last_ts).total_seconds() / 3600
+            gap_hours = (datetime.now(timezone.utc).replace(tzinfo=None).replace(tzinfo=last_ts.tzinfo) - last_ts).total_seconds() / 3600
             if gap_hours > 8:
                 print(f"[STATE] WARNING: Gap of {gap_hours:.1f} hours since last run")
             else:
@@ -357,7 +335,7 @@ def load_state():
             'trading_halted': False,
             'proba_history': [],
             'return_history': [],
-            'start_time': datetime.utcnow().isoformat() + 'Z'
+            'start_time': datetime.now(timezone.utc).replace(tzinfo=None).isoformat() + 'Z'
         }
 
 def save_state(state):
@@ -413,19 +391,6 @@ def log_bar(data_dict):
         f.write(line)
 
 # ============================================================
-# TRAINING STATS FOR DRIFT DETECTION
-# ============================================================
-def load_training_stats():
-    """Load training feature means/stds for drift detection."""
-    # Hard-coded stats from training (approximate, to be refined)
-    # Since we don't have exact training stats, we'll use runtime estimates
-    # In production, these should be stored in a separate file
-    return {
-        'means': {},  # populated from actual training
-        'stds': {}
-    }
-
-# ============================================================
 # MAIN EXECUTION LOOP
 # ============================================================
 def execution_loop():
@@ -442,7 +407,7 @@ def execution_loop():
 
         print(f"\n{'='*70}")
         print(f"ORION V20.7 — Paper Trading Cycle")
-        print(f"UTC: {datetime.utcnow().isoformat()} | Step: {state['step_count'] + 1}")
+        print(f"UTC: {datetime.now(timezone.utc).replace(tzinfo=None).isoformat()} | Step: {state['step_count'] + 1}")
         print(f"{'='*70}")
 
         # 2. Fetch data (200 candles for all rolling windows)
@@ -453,7 +418,7 @@ def execution_loop():
 
         # Time alignment check
         last_candle_ts = df['timestamp'].iloc[-1]
-        now = pd.Timestamp(datetime.utcnow(), tz='UTC')
+        now = pd.Timestamp(datetime.now(timezone.utc).replace(tzinfo=None), tz='UTC')
         expected_close = last_candle_ts + pd.Timedelta(hours=4)
         age_minutes = (now - expected_close).total_seconds() / 60
 
@@ -551,7 +516,7 @@ def execution_loop():
             print(f"[GUARD] MAX DD REACHED: {current_dd:.2%} < {MAX_DD_GUARDRAIL:.2%} — HALTING")
             tg_send(f"🚨 CRITICAL: Max drawdown {current_dd:.2%} exceeded threshold {MAX_DD_GUARDRAIL:.2%} — TRADING HALTED", topic_id=TOPIC_ALERTS)
             with open('/home/ubuntu/orion/TRADING_HALTED', 'w') as f:
-                f.write(datetime.utcnow().isoformat() + 'Z\n')
+                f.write(datetime.now(timezone.utc).replace(tzinfo=None).isoformat() + 'Z\n')
         else:
             # Check if halt file exists externally
             if os.path.exists('/home/ubuntu/orion/TRADING_HALTED'):
@@ -561,7 +526,7 @@ def execution_loop():
 
         # 12. Log this bar
         log_entry = {
-            'timestamp': datetime.utcnow().isoformat() + 'Z',
+            'timestamp': datetime.now(timezone.utc).replace(tzinfo=None).isoformat() + 'Z',
             'price_close': df['close'].iloc[-1],
             'proba_high': proba_high,
             'scale_raw': scale_raw,
@@ -610,7 +575,7 @@ def execution_loop():
 
         # 15. Telegram reporting (per-bar summary to Topic 973)
         if state['step_count'] % 1 == 0:  # Every bar
-            tg_text = f"""✅ ORION V20.7 | {datetime.utcnow().strftime('%Y-%m-%d %H:%M')} UTC
+            tg_text = f"""✅ ORION V20.7 | {datetime.now(timezone.utc).replace(tzinfo=None).strftime('%Y-%m-%d %H:%M')} UTC
 ETH: ${df['close'].iloc[-1]:,.2f}
 Proba: {proba_high:.3f} | Scale: {scale_raw:.3f}
 Position: {position_size*100:.0f}% | DD: {current_dd*100:.1f}%
@@ -636,7 +601,7 @@ def daily_report():
             return
 
         df_log = pd.read_csv(LOG_PATH)
-        today = datetime.utcnow().date()
+        today = datetime.now(timezone.utc).replace(tzinfo=None).date()
         yesterday = today - timedelta(days=1)
 
         # Get recent data (last 3 days or all)
@@ -701,7 +666,7 @@ Status: NORMAL"""
 # ============================================================
 def next_candle_time():
     """Calculate next scheduled run aligned to 4H candles."""
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     current_hour = now.hour
     # Find next hour in schedule
     next_hour = None
@@ -722,7 +687,7 @@ def next_candle_time():
 def wait_and_run():
     """Sleep until next candle, then execute."""
     next_run = next_candle_time()
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     delay = (next_run - now).total_seconds()
     if delay < 0:
         delay = 60
@@ -737,7 +702,7 @@ def main():
     print("=" * 70)
     print("ORION V20.7 — Paper Trading Engine")
     print("=" * 70)
-    print(f"Start time: {datetime.utcnow().isoformat()} UTC")
+    print(f"Start time: {datetime.now(timezone.utc).replace(tzinfo=None).isoformat()} UTC")
     print(f"Model: {MODEL_PATH}")
     print(f"Log: {LOG_PATH}")
     print(f"State: {STATE_PATH}")
@@ -758,14 +723,14 @@ def main():
         print(f"[BASE] Found baseline results: {IC_BASELINE_PATH}")
 
     # Send startup notification
-    tg_send(f"🚀 Orion V20.7 Paper Trading Engine STARTED\nUTC: {datetime.utcnow().isoformat()}", topic_id=TOPIC_ALERTS)
+    tg_send(f"🚀 Orion V20.7 Paper Trading Engine STARTED\nUTC: {datetime.now(timezone.utc).replace(tzinfo=None).isoformat()}", topic_id=TOPIC_ALERTS)
 
     # Run loop
     while True:
         try:
             wait_and_run()
             # Daily report after midnight candle
-            if datetime.utcnow().hour == 0:
+            if datetime.now(timezone.utc).replace(tzinfo=None).hour == 0:
                 try:
                     daily_report()
                 except Exception as e:
