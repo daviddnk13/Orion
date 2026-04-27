@@ -49,7 +49,8 @@ SLIP_BPS = 5
 TOTAL_FRICTION = (FEE_BPS + SLIP_BPS) / 10000.0
 
 # Thresholds to test
-THRESHOLDS = [0.0, 0.10, 0.20, 0.30, 0.40]
+# None = baseline without cash cutoff
+THRESHOLDS = [None, 0.50, 0.55, 0.60, 0.65, 0.70]
 
 # ============================================================
 # DATA FETCHING (OKX)
@@ -370,8 +371,13 @@ def main():
             proba_raw = model.predict(X_test)  # shape (n_test,)
 
             # Pipeline
-            # a) raw_position = max(0, (1 - proba) - threshold)
-            raw_position = np.maximum(0.0, (1.0 - proba_raw) - threshold)
+            # a) Apply cash threshold logic
+            # If threshold is None: baseline (no cash cutoff)
+            # If threshold is set: if proba > threshold -> cash (0), else baseline (1-proba)
+            if threshold is None:
+                raw_position = 1.0 - proba_raw
+            else:
+                raw_position = np.where(proba_raw > threshold, 0.0, 1.0 - proba_raw)
 
             # b) vol_ratio = target_vol / (realized_vol + 1e-8), clip(0.5, 2.0)
             realized_vol = log_returns.rolling(window=42).std().values * np.sqrt(6 * 365)
@@ -434,9 +440,31 @@ def main():
 
             returns = np.array(returns)
             turnovers = np.array(turnovers)
+            positions_for_metrics = position[:-1] if len(position) > 1 else np.array([])
+            n_bars = len(positions_for_metrics)
 
-            # h) Sharpe
-            if len(returns) > 0:
+            # Initialize all metrics
+            sharpe = 0.0
+            max_dd = 0.0
+            exposure = 0.0
+            mean_turnover = 0.0
+            time_in_cash = 0.0
+            exposure_real = 0.0
+            sharpe_in_market = 0.0
+
+            # Compute time_in_cash and exposure_real
+            if n_bars > 0:
+                # Exposure: % bars with position > 0
+                exposure = np.mean(positions_for_metrics > 0) * 100.0
+                # time_in_cash: % bars with position == 0
+                time_in_cash = np.mean(positions_for_metrics == 0) * 100.0
+                # exposure_real: mean position size when > 0
+                pos_positive = positions_for_metrics[positions_for_metrics > 1e-8]
+                exposure_real = np.mean(pos_positive) if len(pos_positive) > 0 else 0.0
+
+            # Compute overall Sharpe, Max DD, Turnover, and Sharpe_in_market
+            if len(returns) > 0 and n_bars == len(returns):
+                # Overall Sharpe
                 mean_ret = np.mean(returns)
                 std_ret = np.std(returns)
                 sharpe = mean_ret / std_ret * np.sqrt(6 * 365) if std_ret > 1e-8 else 0.0
@@ -447,16 +475,18 @@ def main():
                 dd_curve = (equity - running_max) / running_max
                 max_dd = np.min(dd_curve) if len(dd_curve) > 0 else 0.0
 
-                # Exposure (% of bars with position > 0)
-                exposure = np.mean(position[:-1] > 0) * 100.0
-
-                # Turnover (mean abs position change)
+                # Turnover
                 mean_turnover = np.mean(turnovers) if len(turnovers) > 0 else 0.0
-            else:
-                sharpe = 0.0
-                max_dd = 0.0
-                exposure = 0.0
-                mean_turnover = 0.0
+
+                # Sharpe in market (only bars with position > 0)
+                market_mask = positions_for_metrics > 1e-8
+                returns_in_market = returns[market_mask] if np.any(market_mask) else np.array([])
+                if len(returns_in_market) > 0:
+                    mean_ret_mkt = np.mean(returns_in_market)
+                    std_ret_mkt = np.std(returns_in_market)
+                    sharpe_in_market = mean_ret_mkt / std_ret_mkt * np.sqrt(6 * 365) if std_ret_mkt > 1e-8 else 0.0
+                else:
+                    sharpe_in_market = 0.0
 
             fold_metric = {
                 'fold': fold,
@@ -464,22 +494,31 @@ def main():
                 'max_dd': float(max_dd),
                 'exposure': float(exposure),
                 'turnover': float(mean_turnover),
+                'time_in_cash': float(time_in_cash),
+                'exposure_real': float(exposure_real),
+                'sharpe_in_market': float(sharpe_in_market),
                 'n_test': len(test_idx)
             }
             fold_metrics.append(fold_metric)
 
-            print(f"    Sharpe={sharpe:.2f}, DD={max_dd*100:.1f}%, exposure={exposure:.1f}%, turnover={mean_turnover:.4f}")
+            print(f"    Sharpe={sharpe:.2f}, Sharpe_mkt={sharpe_in_market:.2f}, DD={max_dd*100:.1f}%, exposure={exposure:.1f}%, cash={time_in_cash:.1f}%, turnover={mean_turnover:.4f}")
 
         # Aggregate across folds
         sharpe_vals = [fm['sharpe'] for fm in fold_metrics]
         dd_vals = [fm['max_dd'] for fm in fold_metrics]
         exposure_vals = [fm['exposure'] for fm in fold_metrics]
         turnover_vals = [fm['turnover'] for fm in fold_metrics]
+        sharpe_mkt_vals = [fm['sharpe_in_market'] for fm in fold_metrics]
+        time_in_cash_vals = [fm['time_in_cash'] for fm in fold_metrics]
+        exposure_real_vals = [fm['exposure_real'] for fm in fold_metrics]
 
         mean_sharpe = np.mean(sharpe_vals)
         mean_dd = np.mean(dd_vals)
         mean_exposure = np.mean(exposure_vals)
         mean_turnover = np.mean(turnover_vals)
+        mean_sharpe_in_market = np.mean(sharpe_mkt_vals)
+        mean_time_in_cash = np.mean(time_in_cash_vals)
+        mean_exposure_real = np.mean(exposure_real_vals) if exposure_real_vals else 0.0
 
         # Count folds with Sharpe > 0
         folds_sharpe_pos = sum(1 for s in sharpe_vals if s > 0)
@@ -492,6 +531,9 @@ def main():
                 'mean_max_dd': float(mean_dd),
                 'mean_exposure': float(mean_exposure),
                 'mean_turnover': float(mean_turnover),
+                'mean_sharpe_in_market': float(mean_sharpe_in_market),
+                'mean_time_in_cash': float(mean_time_in_cash),
+                'mean_exposure_real': float(mean_exposure_real),
                 'folds_sharpe_positive': int(folds_sharpe_pos)
             }
         }
@@ -504,21 +546,79 @@ def main():
     print("\n" + "=" * 120)
     print("COMPARATIVE RESULTS")
     print("=" * 120)
-    header = f"{'Threshold':>10} {'Sharpe':>10} {'Max DD':>10} {'Turnover':>10} {'Exposure':>10} {'Folds+':>10}"
+    header = f"{'Threshold':>10} {'Sharpe':>10} {'Sharpe_mkt':>11} {'Max DD':>10} {'Turnover':>10} {'Exposure':>10} {'Cash%':>8} {'Folds+':>10}"
     print(header)
     print("-" * 120)
 
     for res in threshold_results:
         agg = res['aggregate']
-        line = (f"{res['threshold']:>10.2f} "
+        threshold_display = "None" if res['threshold'] is None else f"{res['threshold']:.2f}"
+        line = (f"{threshold_display:>10} "
                 f"{agg['mean_sharpe']:>10.2f} "
+                f"{agg['mean_sharpe_in_market']:>11.2f} "
                 f"{agg['mean_max_dd']*100:>9.1f}% "
                 f"{agg['mean_turnover']:>10.4f} "
                 f"{agg['mean_exposure']:>9.1f}% "
+                f"{agg['mean_time_in_cash']:>7.1f}% "
                 f"{agg['folds_sharpe_positive']:>10}/{len(res['folds'])}")
         print(line)
 
     print("-" * 120)
+
+    # Validation logic (vs baseline None)
+    baseline_result = None
+    for r in threshold_results:
+        if r['threshold'] is None:
+            baseline_result = r
+            break
+
+    if baseline_result:
+        print("\n" + "=" * 120)
+        print("VALIDATION (vs baseline None)")
+        print("=" * 120)
+        header_val = f"{'Threshold':>10} {'Valid?':>20} {'Sharpe Δ':>12} {'DD Δ (%)':>12} {'Expo Δ (%)':>12} {'Reason':>30}"
+        print(header_val)
+        print("-" * 120)
+
+        b_agg = baseline_result['aggregate']
+        b_sharpe = b_agg['mean_sharpe']
+        b_dd = b_agg['mean_max_dd']
+        b_exposure = b_agg['mean_exposure']
+
+        for r in threshold_results:
+            t = r['threshold']
+            if t is None:
+                continue
+            a = r['aggregate']
+            sharpe = a['mean_sharpe']
+            dd = a['mean_max_dd']
+            exposure = a['mean_exposure']
+
+            sharpe_ok = sharpe >= b_sharpe
+            dd_ok = dd <= b_dd
+            exposure_ok = exposure < 0.8 * b_exposure
+
+            valid = sharpe_ok and dd_ok and exposure_ok
+
+            reasons = []
+            if not sharpe_ok:
+                reasons.append("Sharpe↓")
+            if not dd_ok:
+                reasons.append("DD↑")
+            if not exposure_ok:
+                reasons.append("Expo≥80%")
+            reason = ", ".join(reasons) if reasons else "OK"
+
+            valid_str = "✅ VÁLIDO" if valid else "❌ NO VÁLIDO"
+            sharpe_delta = sharpe - b_sharpe
+            dd_delta = dd - b_dd
+            exp_delta = exposure - b_exposure
+
+            print(f"{t:>10.2f} {valid_str:>20} {sharpe_delta:>12.2f} {dd_delta*100:>11.1f}% {exp_delta:>11.1f}% {reason:>30}")
+
+        print("-" * 120)
+    else:
+        print("\n[VALIDATION] No baseline (None) found. Skipping validation.")
 
     # 8. Identify best threshold
     # Criteria: Sharpe > 0
@@ -556,14 +656,15 @@ def main():
     # 10. Generate plots
     # a) Sharpe vs Threshold
     plt.figure(figsize=(10, 6))
-    thresholds_plot = [r['threshold'] for r in threshold_results]
+    x_pos = np.arange(len(threshold_results))
+    threshold_labels = [str(r['threshold']) if r['threshold'] is not None else "None" for r in threshold_results]
     sharpes = [r['aggregate']['mean_sharpe'] for r in threshold_results]
-    plt.plot(thresholds_plot, sharpes, marker='o', linewidth=2, markersize=8)
+    plt.plot(x_pos, sharpes, marker='o', linewidth=2, markersize=8)
     plt.xlabel('Cash Threshold')
     plt.ylabel('Mean Sharpe')
     plt.title('Sharpe Ratio vs Cash Threshold')
     plt.grid(True, alpha=0.3)
-    plt.xticks(thresholds_plot)
+    plt.xticks(x_pos, threshold_labels)
     plot1_path = 'cash_threshold_sharpe.png'
     plt.savefig(plot1_path, dpi=100, bbox_inches='tight')
     print(f"[PLOT] Saved Sharpe plot to {plot1_path}")
@@ -572,12 +673,12 @@ def main():
     # b) Exposure vs Threshold
     plt.figure(figsize=(10, 6))
     exposures = [r['aggregate']['mean_exposure'] for r in threshold_results]
-    plt.plot(thresholds_plot, exposures, marker='s', linewidth=2, markersize=8, color='orange')
+    plt.plot(x_pos, exposures, marker='s', linewidth=2, markersize=8, color='orange')
     plt.xlabel('Cash Threshold')
     plt.ylabel('Mean Exposure (%)')
     plt.title('Exposure vs Cash Threshold')
     plt.grid(True, alpha=0.3)
-    plt.xticks(thresholds_plot)
+    plt.xticks(x_pos, threshold_labels)
     plot2_path = 'cash_threshold_exposure.png'
     plt.savefig(plot2_path, dpi=100, bbox_inches='tight')
     print(f"[PLOT] Saved Exposure plot to {plot2_path}")
@@ -596,8 +697,53 @@ def main():
 
     for res in threshold_results:
         agg = res['aggregate']
-        line = f"<code>Thresh={res['threshold']:.2f}  Sharpe={agg['mean_sharpe']:>5.2f}  DD={agg['mean_max_dd']*100:>5.1f}%  Expo={agg['mean_exposure']:>5.1f}%  Turn={agg['mean_turnover']:.4f}  Folds+={agg['folds_sharpe_positive']}/{len(res['folds'])}</code>"
+        line = f"<code>Thresh={res['threshold']:.2f}  Sharpe={agg['mean_sharpe']:>5.2f}  Sharpe_mkt={agg['mean_sharpe_in_market']:>5.2f}  DD={agg['mean_max_dd']*100:>5.1f}%  Expo={agg['mean_exposure']:>5.1f}%  Cash={agg['mean_time_in_cash']:>4.1f}%  Turn={agg['mean_turnover']:.4f}  Folds+={agg['folds_sharpe_positive']}/{len(res['folds'])}</code>"
         tg_msg.append(line)
+
+    # Validation section in Telegram
+    baseline_result_tg = None
+    for r in threshold_results:
+        if r['threshold'] is None:
+            baseline_result_tg = r
+            break
+
+    if baseline_result_tg:
+        tg_msg.append("")
+        tg_msg.append("<b>VALIDATION (vs baseline None)</b>")
+        b_agg = baseline_result_tg['aggregate']
+        b_sharpe = b_agg['mean_sharpe']
+        b_dd = b_agg['mean_max_dd']
+        b_exposure = b_agg['mean_exposure']
+
+        for r in threshold_results:
+            t = r['threshold']
+            if t is None:
+                continue
+            a = r['aggregate']
+            sharpe = a['mean_sharpe']
+            dd = a['mean_max_dd']
+            exposure = a['mean_exposure']
+
+            sharpe_ok = sharpe >= b_sharpe
+            dd_ok = dd <= b_dd
+            exposure_ok = exposure < 0.8 * b_exposure
+            valid = sharpe_ok and dd_ok and exposure_ok
+            valid_str = "✅ VÁLIDO" if valid else "❌ NO VÁLIDO"
+            sharpe_delta = sharpe - b_sharpe
+            dd_delta = dd - b_dd
+            exp_delta = exposure - b_exposure
+
+            reasons = []
+            if not sharpe_ok:
+                reasons.append("Sharpe↓")
+            if not dd_ok:
+                reasons.append("DD↑")
+            if not exposure_ok:
+                reasons.append("Expo≥80%")
+            reason = ", ".join(reasons) if reasons else "OK"
+
+            line_val = f"<code>Thresh={t:.2f}: {valid_str}  SharpeΔ={sharpe_delta:+.2f}  DDΔ={dd_delta*100:+.1f}%  ExpoΔ={exp_delta:+.1f}%  {reason}</code>"
+            tg_msg.append(line_val)
 
     if valid_results:
         best = max(valid_results, key=lambda x: x['aggregate']['mean_sharpe'])
