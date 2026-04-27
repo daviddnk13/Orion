@@ -354,7 +354,7 @@ def main():
 
     for threshold in THRESHOLDS:
         print(f"\n{'='*80}")
-        print(f"[THRESHOLD] Testing threshold = {threshold if threshold is None else f'{threshold:.2f}'}")
+        print(f"[THRESHOLD] Testing threshold = {'None' if threshold is None else f'{threshold:.2f}'}")
         print("=" * 80)
 
         fold_metrics = []
@@ -625,7 +625,7 @@ def main():
     valid_results = [r for r in threshold_results if r['aggregate']['mean_sharpe'] > 0]
     if valid_results:
         best = max(valid_results, key=lambda x: x['aggregate']['mean_sharpe'])
-        print(f"\n🏆 BEST THRESHOLD: {best['threshold']:.2f} "
+        print(f"\n🏆 BEST THRESHOLD: {'None' if best['threshold'] is None else format(best['threshold'], '.2f')} "
               f"(Sharpe={best['aggregate']['mean_sharpe']:.2f}, "
               f"DD={best['aggregate']['mean_max_dd']*100:.1f}%, "
               f"Exposure={best['aggregate']['mean_exposure']:.1f}%)")
@@ -697,7 +697,7 @@ def main():
 
     for res in threshold_results:
         agg = res['aggregate']
-        line = f"<code>Thresh={res['threshold']:.2f}  Sharpe={agg['mean_sharpe']:>5.2f}  Sharpe_mkt={agg['mean_sharpe_in_market']:>5.2f}  DD={agg['mean_max_dd']*100:>5.1f}%  Expo={agg['mean_exposure']:>5.1f}%  Cash={agg['mean_time_in_cash']:>4.1f}%  Turn={agg['mean_turnover']:.4f}  Folds+={agg['folds_sharpe_positive']}/{len(res['folds'])}</code>"
+        line = f"<code>Thresh={'None' if res['threshold'] is None else format(res['threshold'], '.2f')}  Sharpe={agg['mean_sharpe']:>5.2f}  Sharpe_mkt={agg['mean_sharpe_in_market']:>5.2f}  DD={agg['mean_max_dd']*100:>5.1f}%  Expo={agg['mean_exposure']:>5.1f}%  Cash={agg['mean_time_in_cash']:>4.1f}%  Turn={agg['mean_turnover']:.4f}  Folds+={agg['folds_sharpe_positive']}/{len(res['folds'])}</code>"
         tg_msg.append(line)
 
     # Validation section in Telegram
@@ -748,7 +748,7 @@ def main():
     if valid_results:
         best = max(valid_results, key=lambda x: x['aggregate']['mean_sharpe'])
         tg_msg.append("")
-        tg_msg.append(f"🏆 <b>BEST: {best['threshold']:.2f}</b> (Sharpe={best['aggregate']['mean_sharpe']:.2f})")
+        tg_msg.append(f"🏆 <b>BEST: {'None' if best['threshold'] is None else format(best['threshold'], '.2f')}</b> (Sharpe={best['aggregate']['mean_sharpe']:.2f})")
     else:
         tg_msg.append("")
         tg_msg.append("⚠️ <b>NO VALID THRESHOLD</b> — all Sharpe <= 0")
