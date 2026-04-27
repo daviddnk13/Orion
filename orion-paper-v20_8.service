@@ -1,0 +1,15 @@
+[Unit]
+Description=Orion V20.8 Multi-Asset Paper Trading
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/orion
+ExecStart=/home/ubuntu/orion/venv/bin/python3 /home/ubuntu/orion/paper_trading_v20_8.py
+Restart=always
+RestartSec=30
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
