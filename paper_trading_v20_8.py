@@ -507,7 +507,7 @@ def execution_cycle():
                 position_usd = virtual_balance * prev_position
                 raw_pnl = position_usd * price_change_pct
                 delta_position = abs(position - prev_position)
-                cycle_fee = virtual_balance * delta_position * 0.0015
+                cycle_fee = virtual_balance * delta_position * TOTAL_FRICTION
                 net_pnl = raw_pnl - cycle_fee
                 virtual_balance += net_pnl
                 pnl = net_pnl
@@ -515,7 +515,7 @@ def execution_cycle():
             peak_balance = asset_state.get("peak_balance", virtual_balance)
             virtual_balance = max(virtual_balance, 0.0)
             peak_balance = max(peak_balance, virtual_balance)
-            current_dd = (peak_balance - virtual_balance) / peak_balance if peak_balance > 0 else 0.0
+            current_dd = (virtual_balance - peak_balance) / peak_balance if peak_balance > 0 else 0.0
 
             drift_detected, drift_counter = update_drift_counter(
                 symbol, asset_state, df, raw_features, proba_high
@@ -544,6 +544,7 @@ def execution_cycle():
                 "virtual_balance": virtual_balance,
                 "current_dd": current_dd,
                 "drift_counter": drift_counter,
+                "drift_reduced": drift_reduced_flag,
                 "exposure_scaled": False,
                 "features_hash": features_hash,
                 "realized_vol": sizing_meta["realized_vol"],
@@ -580,6 +581,9 @@ def execution_cycle():
     pre_cap_exposure = sum(active_results[s]["position"] for s in active_results) if len(active_results) > 0 else 0.0
     if len(active_results) > 0:
         apply_portfolio_exposure_cap(active_results)
+        # Actualizar prev_position en state con la posición post-cap
+        for symbol in active_results:
+            state["assets"][symbol]["prev_position"] = active_results[symbol]["position"]
     post_cap_exposure = sum(active_results[s]["position"] for s in active_results) if len(active_results) > 0 else 0.0
     scale_factor = post_cap_exposure / pre_cap_exposure if pre_cap_exposure > 0 else 1.0
 
