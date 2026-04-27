@@ -24,7 +24,7 @@ from sklearn.metrics import mean_win_loss_ratio  # custom calculation below
 # ============================================================
 # CONFIGURATION (KAGGLE)
 # ============================================================
-MODEL_PATH = '/kaggle/input/orion-model/model_v20_6_1.pkl'
+MODEL_PATH = 'model_v20_6_1.pkl'
 
 # Telegram (hardcoded for topic 972 — Modelos)
 TELEGRAM_BOT_TOKEN = '8723893197:AAFfIORXd2Y-qQ8TclOq23afEPt_knr7xrU'
