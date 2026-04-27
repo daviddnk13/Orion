@@ -1,0 +1,14 @@
+[Unit]
+Description=Orion V20.9 Multi-Asset Trading Engine
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/ubuntu/orion
+ExecStart=/home/ubuntu/orion/venv/bin/python /home/ubuntu/orion/orion_crypto.py
+Restart=always
+RestartSec=10
+User=ubuntu
+
+[Install]
+WantedBy=multi-user.target
