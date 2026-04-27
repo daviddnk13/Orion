@@ -354,7 +354,7 @@ def main():
 
     for threshold in THRESHOLDS:
         print(f"\n{'='*80}")
-        print(f"[THRESHOLD] Testing threshold = {threshold:.2f}")
+        print(f"[THRESHOLD] Testing threshold = {threshold if threshold is None else f'{threshold:.2f}'}")
         print("=" * 80)
 
         fold_metrics = []
