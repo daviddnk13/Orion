@@ -1,7 +1,7 @@
 #!/home/ubuntu/orion/venv/bin/python3
 # -*- coding: utf-8 -*-
 """
-ORION V20.8 — Multi-Asset Paper Trading Engine
+ORION V20.9 — Multi-Asset Paper Trading Engine
 Self-contained execution engine for 30-day paper trading validation
 Supports: ETH/USDT, BTC/USDT with vol-adjusted sizing and portfolio exposure cap
 
@@ -21,6 +21,8 @@ from datetime import datetime, timedelta, timezone
 from scipy.stats import pearsonr
 import joblib
 import lightgbm as lgb
+
+sys.stdout = open(sys.stdout.fileno(), mode='w', buffering=1)
 
 # ============================================================
 # ASSET CONFIGURATION (V20.9 — MULTI-ASSET)
@@ -53,9 +55,9 @@ MAX_PORTFOLIO_EXPOSURE = 0.8
 DD_FLOOR = -0.50
 
 MODEL_PATH = '/home/ubuntu/orion/model_v20_6_1.pkl'
-LOG_PATH = '/home/ubuntu/orion/paper_trading_log_v20_8.csv'
-STATE_PATH = '/home/ubuntu/orion/state_v20_8.json'
-STATE_TEMP_PATH = '/home/ubuntu/orion/state_v20_8.tmp'
+LOG_PATH = '/home/ubuntu/orion/paper_trading_log_v20_9.csv'
+STATE_PATH = '/home/ubuntu/orion/state_v20_9.json'
+STATE_TEMP_PATH = '/home/ubuntu/orion/state_v20_9.tmp'
 
 EXCHANGE = 'okx'
 TIMEFRAME = '4H'
@@ -453,7 +455,7 @@ def execution_cycle():
         return
 
     print(f"\n{'='*70}")
-    print(f"ORION V20.8 — Multi-Asset Paper Trading Cycle")
+    print(f"ORION V20.9 — Multi-Asset Paper Trading Cycle")
     print(f"UTC: {datetime.now(timezone.utc).replace(tzinfo=None).isoformat()} | Step: {state['assets']['ETH/USDT']['bar_count'] + 1}")
     print(f"Assets: {', '.join(ASSETS.keys())}")
     print(f"{'='*70}")
@@ -618,7 +620,7 @@ def execution_cycle():
     total_latency = int((time.time() - start_time) * 1000)
 
     report_lines = []
-    report_lines.append(f"✅ ORION V20.8 | {datetime.now(timezone.utc).replace(tzinfo=None).strftime('%Y-%m-%d %H:%M')} UTC")
+    report_lines.append(f"✅ ORION V20.9 | {datetime.now(timezone.utc).replace(tzinfo=None).strftime('%Y-%m-%d %H:%M')} UTC")
 
     for symbol in sorted(ASSETS.keys()):
         if symbol in results:
@@ -675,7 +677,7 @@ def wait_and_run():
 
 def main():
     print("=" * 70)
-    print("ORION V20.8 — Multi-Asset Paper Trading Engine")
+    print("ORION V20.9 — Multi-Asset Paper Trading Engine")
     print("=" * 70)
     print(f"Start time: {datetime.now(timezone.utc).replace(tzinfo=None).isoformat()} UTC")
     print(f"Model: {MODEL_PATH}")
@@ -692,14 +694,14 @@ def main():
 
     init_log()
 
-    tg_send(f"🚀 Orion V20.8 Multi-Asset Paper Trading Engine STARTED\nUTC: {datetime.now(timezone.utc).replace(tzinfo=None).isoformat()}\nAssets: {', '.join(ASSETS.keys())}", topic_id=TOPIC_ALERTS)
+    tg_send(f"🚀 Orion V20.9 Multi-Asset Paper Trading Engine STARTED\nUTC: {datetime.now(timezone.utc).replace(tzinfo=None).isoformat()}\nAssets: {', '.join(ASSETS.keys())}", topic_id=TOPIC_ALERTS)
 
     while True:
         try:
             wait_and_run()
         except KeyboardInterrupt:
             print("\n[MAIN] Keyboard interrupt — exiting")
-            tg_send("🛑 Orion V20.8 STOPPED (keyboard)", topic_id=TOPIC_ALERTS)
+            tg_send("🛑 Orion V20.9 STOPPED (keyboard)", topic_id=TOPIC_ALERTS)
             break
         except Exception as e:
             print(f"[MAIN] Error: {e}")
