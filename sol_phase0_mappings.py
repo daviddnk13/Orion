@@ -19,7 +19,6 @@ from scipy.stats import spearmanr
 import joblib
 import lightgbm as lgb
 import matplotlib.pyplot as plt
-from sklearn.metrics import mean_win_loss_ratio  # custom calculation below
 
 # ============================================================
 # CONFIGURATION (KAGGLE)
