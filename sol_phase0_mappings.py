@@ -628,7 +628,7 @@ def main():
         'mappings': all_results
     }
 
-    json_path = '/home/ubuntu/orion/sol_phase0_results.json'
+    json_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'sol_phase0_results.json')
     with open(json_path, 'w') as f:
         json.dump(output, f, indent=2)
     print(f"\n[OUTPUT] Saved results to {json_path}")
@@ -651,7 +651,7 @@ def main():
         ax.grid(True, alpha=0.3)
 
     plt.tight_layout()
-    plot_path = '/home/ubuntu/orion/sol_phase0_monotonicity.png'
+    plot_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'sol_phase0_monotonicity.png')
     plt.savefig(plot_path, dpi=100)
     print(f"[PLOT] Saved monotonicity plot to {plot_path}")
 
