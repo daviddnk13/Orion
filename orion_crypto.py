@@ -268,7 +268,11 @@ def calculate_position(proba_high, asset_config, asset_state, log_returns_series
     vol_ratio = asset_config["target_vol"] / (rv_current + 1e-8)
     vol_ratio = np.clip(vol_ratio, 0.5, 2.0)
 
-    raw_position = (1 - proba_high) * vol_ratio
+    mapping = asset_config.get("mapping", "baseline")
+    if mapping == "confidence_weighted":
+        raw_position = proba_high * vol_ratio
+    else:
+        raw_position = (1 - proba_high) * vol_ratio
     position = np.clip(raw_position, 0, asset_config["position_cap"])
 
     prev_position = asset_state.get("prev_position", 0.0)
@@ -532,11 +536,7 @@ def execution_cycle():
             if drift_detected:
                 position *= 0.5
                 print(f"[{symbol}] DRIFT DETECTED — position reduced 50% (counter={drift_counter})")
-                results[symbol]["drift_reduced"] = True
                 tg_send(f"⚠️ DRIFT DETECTED en {symbol} — counter={drift_counter} — posición reducida 50%", topic_id=TOPIC_ALERTS)
-            else:
-                results[symbol]["drift_reduced"] = False
-
             asset_state["virtual_balance"] = virtual_balance
             asset_state["peak_balance"] = peak_balance
             asset_state["current_dd"] = current_dd
@@ -553,7 +553,7 @@ def execution_cycle():
                 "virtual_balance": virtual_balance,
                 "current_dd": current_dd,
                 "drift_counter": drift_counter,
-                "drift_reduced": drift_reduced_flag,
+                "drift_reduced": drift_detected,
                 "exposure_scaled": False,
                 "features_hash": features_hash,
                 "realized_vol": sizing_meta["realized_vol"],
