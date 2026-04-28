@@ -87,6 +87,9 @@ DATA_FEED_MAX_AGE_MINUTES = 30
 API_TIMEOUT_MS = 30000
 API_MAX_RETRIES = 3
 
+DRIFT_THRESHOLD = 0.5
+DRIFT_CONSECUTIVE_BARS = 3
+
 def tg_send(text, topic_id=None, parse_mode='HTML'):
     try:
         url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
