@@ -3,7 +3,7 @@
 """
 ORION V20.9 — Multi-Asset Paper Trading Engine
 Self-contained execution engine for 30-day paper trading validation
-Supports: ETH/USDT, BTC/USDT with vol-adjusted sizing and portfolio exposure cap
+Supports: ETH/USDT, BTC/USDT, SOL/USDT with vol-adjusted sizing and portfolio exposure cap
 
 Author: Claude Code (Anthropic)
 Date: 2026-04-27
@@ -34,6 +34,7 @@ ASSETS = {
         "target_vol": 0.15,
         "vol_window": 168,
         "position_cap": 0.5,
+        "virtual_balance": 10000.0,
     },
     "BTC/USDT": {
         "mapping": "baseline",
@@ -41,6 +42,7 @@ ASSETS = {
         "target_vol": 0.12,
         "vol_window": 252,
         "position_cap": 0.5,
+        "virtual_balance": 10000.0,
     },
     "SOL/USDT": {
         "mapping": "confidence_weighted",
@@ -48,6 +50,7 @@ ASSETS = {
         "target_vol": 0.18,
         "vol_window": 168,
         "position_cap": 0.5,
+        "virtual_balance": 10000.0,
     },
 }
 
@@ -328,7 +331,7 @@ def load_state():
     if not os.path.exists(STATE_PATH):
         print("[STATE] No state found, starting fresh")
         state = {
-            "version": "20.8",
+            "version": "20.9",
             "last_update": datetime.now(timezone.utc).replace(tzinfo=None).isoformat() + 'Z',
             "assets": {},
             "portfolio": {"total_balance": 0.0, "portfolio_dd": 0.0, "portfolio_peak": 0.0}
@@ -378,7 +381,7 @@ def load_state():
     except Exception as e:
         print(f"[STATE] Failed to load, starting fresh: {e}")
         state_fallback = {
-            "version": "20.8",
+            "version": "20.9",
             "last_update": datetime.now(timezone.utc).replace(tzinfo=None).isoformat() + 'Z',
             "assets": {},
             "portfolio": {"total_balance": 0.0, "portfolio_dd": 0.0, "portfolio_peak": 0.0}
