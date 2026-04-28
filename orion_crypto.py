@@ -482,7 +482,7 @@ def execution_cycle():
         try:
             print(f"\n[{symbol}] Starting processing...")
 
-            df = fetch_okx_ohlcv(symbol=symbol, timeframe=TIMEFRAME, n_candles=200)
+            df = fetch_okx_ohlcv(symbol=symbol.replace("/", "-"), timeframe=TIMEFRAME, n_candles=200)
             df = df.iloc[:-1]
             print(f"[{symbol}] Got {len(df)} candles")
 
