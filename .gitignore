@@ -20,3 +20,5 @@ venv/
 .DS_Store
 Thumbs.db
 state_backup.json
+state_v20_9.json
+paper_trading_log_v20_9.csv
