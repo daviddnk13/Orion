@@ -289,3 +289,39 @@ body::before {
     .asset-state-cards { grid-template-columns: 1fr; }
     .asset-state-grid { grid-template-columns: 1fr 1fr; gap: 8px; }
 }
+
+/* Version toggle */
+.version-toggle { display: flex; gap: 8px; margin-right: 16px; }
+.version-btn {
+    padding: 6px 16px;
+    background: var(--bg-input);
+    border: 1px solid var(--blue-border);
+    color: var(--text-secondary);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 500;
+    transition: var(--transition);
+}
+.version-btn:hover { background: var(--bg-card-hover); color: var(--text-primary); }
+.version-btn.active {
+    background: var(--blue-core);
+    border-color: var(--blue-bright);
+    color: white;
+    box-shadow: var(--glow-sm);
+}
+
+/* Service badges */
+.service-badges { display: flex; gap: 8px; margin-left: 12px; }
+.service-badges .badge { font-size: 10px; padding: 4px 8px; }
+
+/* Comparison card */
+.comparison-card { margin-top: 16px; }
+.comparison-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+.comparison-item { display: flex; flex-direction: column; gap: 4px; padding: 12px; background: var(--bg-input); border-radius: var(--radius-sm); }
+.comparison-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.3px; font-weight: 500; }
+.comparison-value { font-size: 16px; color: var(--text-primary); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+/* V21-only columns */
+.v21-only { display: none; }
+.v21-only.visible { display: table-cell; }

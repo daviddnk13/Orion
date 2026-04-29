@@ -1,10 +1,10 @@
 (function(){
 'use strict';
 var RP=30000,RS=30000,RH=60000,RY=60000,CI=1000;
-var charts={},historyData=[],stateData={},sortCol='timestamp',sortDir='desc';
+var charts={},historyData={},stateData={},sortCol='timestamp',sortDir='desc',currentVersion='v209';
 
 document.addEventListener('DOMContentLoaded',function(){
-    initTabs();initClock();initSorting();fetchAll();
+    initTabs();initClock();initSorting();initVersionToggle();fetchAll();
     setInterval(fetchPrices,RP);setInterval(fetchStatus,RS);
     setInterval(fetchHistory,RH);setInterval(fetchSystem,RY);
     var rb=document.getElementById('refresh-log');if(rb)rb.addEventListener('click',fetchHistory);
@@ -21,6 +21,22 @@ function updateClock(){
     var t=now.toLocaleTimeString('es-CU',{hour:'2-digit',minute:'2-digit',second:'2-digit',timeZone:'America/Havana'});
     var d=now.toLocaleDateString('es-CU',{weekday:'long',day:'numeric',month:'long',year:'numeric',timeZone:'America/Havana'});
     el('live-clock',t);el('live-date',d);el('last-update',t);
+}
+
+/* ═══ VERSION TOGGLE ═══ */
+function initVersionToggle(){
+    document.querySelectorAll('.version-btn').forEach(function(btn){
+        btn.addEventListener('click',function(){
+            var ver=btn.dataset.version;
+            document.querySelectorAll('.version-btn').forEach(function(b){b.classList.remove('active');});
+            btn.classList.add('active');
+            currentVersion=ver;
+            el('version-display',ver==='v209'?'V20.9':'V21.0');
+            document.querySelectorAll('.v21-only').forEach(function(el){el.style.display=ver==='v21'?'':'none';});
+            fetchStatus();fetchHistory();
+            if(ver==='v21')fetchComparison();
+        });
+    });
 }
 
 /* ═══ TABS ═══ */
@@ -41,8 +57,9 @@ function initTabs(){
 
 /* ═══ STATUS (state JSON) ═══ */
 function fetchStatus(){
-    fetch('/api/status').then(function(r){if(!r.ok)throw new Error();return r.json();})
-    .then(function(d){if(d.error)throw new Error(d.error);stateData=d;renderStatus(d);renderAssetState(d);updateBadge('activo');})
+    var endpoint=currentVersion==='v209'?'/api/status':'/api/v21/status';
+    fetch(endpoint).then(function(r){if(!r.ok)throw new Error();return r.json();})
+    .then(function(d){if(d.error)throw new Error(d.error);stateData[currentVersion]=d;renderStatus(d);renderAssetState(d);updateBadge('activo');})
     .catch(function(){updateBadge('error');});
 }
 
@@ -65,7 +82,7 @@ function renderStatus(data){
 function renderAssetState(data){
     var assets=data.assets||{};
     var c=document.getElementById('asset-state-cards');if(!c)return;
-    var icons={'ETH/USDT':'\u27E0','BTC/USDT':'\u20BF','SOL/USDT':'\u25CE'};
+    var icons={'ETH/USDT':'⟠','BTC/USDT':'₿','SOL/USDT':'◎'};
     var colors={'ETH/USDT':'#627eea','BTC/USDT':'#f7931a','SOL/USDT':'#00ffa3'};
     var h='';
     for(var sym in assets){
@@ -83,6 +100,19 @@ function renderAssetState(data){
         var pnlUsd=info.virtual_balance-10000;
         var pnlPct=((info.virtual_balance-10000)/10000*100).toFixed(2);
         var pnlColor=pnlUsd>=0?'var(--green)':'var(--red)';
+
+        // V21 edge state for ETH
+        var edgeHtml='';
+        if(currentVersion==='v21'&&sym==='ETH/USDT'){
+            var edgeState=info.last_edge_state||'N/A';
+            var edgeProba=info.last_edge_proba||0;
+            var edgeColor='var(--text-secondary)';
+            if(edgeState==='EDGE_ON')edgeColor='var(--green)';
+            if(edgeState==='EDGE_OFF')edgeColor='var(--red)';
+            edgeHtml='<div class="asset-state-item"><span class="asset-state-label">Edge State</span><span class="asset-state-value" style="color:'+edgeColor+'">'+edgeState+'</span></div>';
+            edgeHtml+='<div class="asset-state-item"><span class="asset-state-label">Edge Prob</span><span class="asset-state-value">'+edgeProba.toFixed(4)+'</span></div>';
+        }
+
         h+='<div class="asset-state-card" style="border-left:3px solid '+cl+'">'
           +'<div class="asset-state-header"><span style="color:'+cl+';font-size:18px">'+ic+'</span><strong>'+sym+'</strong>'
           +'<span class="badge badge-success" style="font-size:10px">Barra '+( info.bar_count||0)+'</span></div>'
@@ -95,11 +125,40 @@ function renderAssetState(data){
           +'<div class="asset-state-item"><span class="asset-state-label">Drawdown</span><span class="asset-state-value" style="color:'+(parseFloat(ddPct)<-1?'var(--red)':'var(--text-secondary)')+'">'+ddPct+'%</span></div>'
           +'<div class="asset-state-item"><span class="asset-state-label">Drift Counter</span><span class="asset-state-value" style="color:'+driftColor+'">'+driftTxt+'</span></div>'
           +'<div class="asset-state-item"><span class="asset-state-label">Senal</span><span class="asset-state-value" style="color:'+sigColor+'">'+signal+'</span></div>'
+          +edgeHtml
           +'</div>'
           +'<div class="position-bar-container"><div class="position-bar-label">Exposicion: '+posPct+'% de 50% max</div>'
           +'<div class="position-bar-track"><div class="position-bar-fill" style="width:'+Math.min(info.prev_position/0.5*100,100)+'%;background:'+cl+'"></div></div></div></div>';
     }
     c.innerHTML=h;
+}
+
+/* ═══ COMPARISON ═══ */
+function fetchComparison(){
+    fetch('/api/status').then(function(r){if(!r.ok)throw new Error();return r.json();})
+    .then(function(v209){stateData['v209']=v209;return fetch('/api/v21/status');})
+    .then(function(r){if(!r.ok)throw new Error();return r.json();})
+    .then(function(v21){stateData['v21']=v21;renderComparison();})
+    .catch(function(e){console.warn('Comparison:',e);});
+}
+
+function renderComparison(){
+    var v209=stateData['v209']||{},v21=stateData['v21']||{};
+    var cc=document.getElementById('comparison-card');if(!cc)return;
+    if(!v209.portfolio||!v21.portfolio){cc.style.display='none';return;}
+    cc.style.display='block';
+
+    var v209Bal=v209.portfolio.total_balance||0,v21Bal=v21.portfolio.total_balance||0;
+    var v209DD=v209.portfolio.portfolio_dd||0,v21DD=v21.portfolio.portfolio_dd||0;
+    var v209EthPos=(v209.assets&&v209.assets['ETH/USDT']?v209.assets['ETH/USDT'].prev_position:0);
+    var v21EthPos=(v21.assets&&v21.assets['ETH/USDT']?v21.assets['ETH/USDT'].prev_position:0);
+
+    el('comp-v209-balance','$'+fN(v209Bal,2));
+    el('comp-v21-balance','$'+fN(v21Bal,2));
+    el('comp-v209-dd',(v209DD*100).toFixed(2)+'%');
+    el('comp-v21-dd',(v21DD*100).toFixed(2)+'%');
+    el('comp-v209-eth-pos',(v209EthPos*100).toFixed(1)+'%');
+    el('comp-v21-eth-pos',(v21EthPos*100).toFixed(1)+'%');
 }
 
 /* ═══ PRICES ═══ */
@@ -111,7 +170,7 @@ function fetchPrices(){
 
 function renderCards(prices){
     var c=document.getElementById('asset-cards');if(!c)return;
-    var icons={'ETH/USDT':'\u27E0','BTC/USDT':'\u20BF','SOL/USDT':'\u25CE'};
+    var icons={'ETH/USDT':'⟠','BTC/USDT':'₿','SOL/USDT':'◎'};
     var colors={'ETH/USDT':'#627eea','BTC/USDT':'#f7931a','SOL/USDT':'#00ffa3'};
     var h='';
     for(var s in prices){
@@ -135,7 +194,7 @@ function renderCards(prices){
 
 function renderAllocChart(prices){
     var cv=document.getElementById('allocation-chart');if(!cv)return;
-    var assets=stateData.assets||{};
+    var assets=stateData[currentVersion]&&stateData[currentVersion].assets?stateData[currentVersion].assets:{};
     var lb=[],vl=[],bg=['#627eea','#f7931a','#00ffa3'],idx=0;
     for(var s in prices){lb.push(s);var bal=assets[s]?assets[s].virtual_balance:10000;vl.push(bal);idx++;}
     if(charts.alloc)charts.alloc.destroy();
@@ -144,25 +203,19 @@ function renderAllocChart(prices){
         tooltip:{callbacks:{label:function(ctx){return ctx.label+': $'+fN(ctx.parsed,2);}}}}}});
 }
 
-/* ═══ HISTORY (CSV log) — CAMPOS REALES ═══ */
-/*
- * CSV columns:
- * timestamp, asset, price_close, proba_high, position_size,
- * pnl, virtual_balance, current_dd, exposure_scaled,
- * drift_reduced, latency_ms, realized_vol, vol_ratio,
- * dd_scalar, features_hash
- */
+/* ═══ HISTORY (CSV log) ═══ */
 function fetchHistory(){
-    fetch('/api/history?limit=500').then(function(r){if(!r.ok)throw new Error();return r.json();})
-    .then(function(d){historyData=d;renderTradeLog();renderCharts();})
+    var endpoint=currentVersion==='v209'?'/api/history?limit=500':'/api/v21/history?limit=500';
+    fetch(endpoint).then(function(r){if(!r.ok)throw new Error();return r.json();})
+    .then(function(d){historyData[currentVersion]=d;renderTradeLog();renderCharts();})
     .catch(function(e){console.warn('History:',e);});
 }
 
 function renderTradeLog(){
     var tb=document.querySelector('#trade-log-table tbody');if(!tb)return;
     var f=document.getElementById('log-asset-filter'),af=f?f.value:'';
-    var fd=historyData;if(af)fd=historyData.filter(function(r){return r.asset===af;});
-    var numC=['proba_high','position_size','price_close','pnl','virtual_balance','current_dd','realized_vol','vol_ratio','dd_scalar','latency_ms'];
+    var fd=historyData[currentVersion]||[];if(af)fd=fd.filter(function(r){return r.asset===af;});
+    var numC=['proba_high','position_size','price_close','pnl','virtual_balance','current_dd','realized_vol','vol_ratio','dd_scalar','latency_ms','edge_proba'];
     fd=fd.slice();
     fd.sort(function(a,b){
         var va=a[sortCol]||'',vb=b[sortCol]||'';
@@ -185,6 +238,18 @@ function renderTradeLog(){
         var pnlPct=balVal>0?((balVal-10000)/10000*100):0;
         var pc=pnlVal>=0?'positive':'negative';
         var ts=row.timestamp?new Date(row.timestamp).toLocaleString('es-CU',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',timeZone:'America/Havana'}):'--';
+
+        // V21 edge state
+        var edgeHtml='';
+        if(currentVersion==='v21'){
+            var edgeState=row.edge_state||'N/A';
+            var edgeProba=parseFloat(row.edge_proba||0);
+            var edgeColor='var(--text-secondary)';
+            if(edgeState==='EDGE_ON')edgeColor='var(--green)';
+            if(edgeState==='EDGE_OFF')edgeColor='var(--red)';
+            edgeHtml='<td style="color:'+edgeColor+'">'+edgeState+'</td><td>'+edgeProba.toFixed(4)+'</td>';
+        }
+
         h+='<tr>'
           +'<td>'+ts+'</td>'
           +'<td><strong>'+( row.asset||'--')+'</strong></td>'
@@ -199,9 +264,11 @@ function renderTradeLog(){
           +'<td>'+vratio.toFixed(2)+'</td>'
           +'<td>'+ddsc.toFixed(2)+'</td>'
           +'<td>'+latMs.toFixed(0)+'ms</td>'
+          +edgeHtml
           +'</tr>';
     }
-    tb.innerHTML=h||'<tr><td colspan="13" style="text-align:center;color:#4a6080;padding:40px;">Esperando datos — primera barra 4H en progreso</td></tr>';
+    var colCount=currentVersion==='v21'?15:13;
+    tb.innerHTML=h||'<tr><td colspan="'+colCount+'" style="text-align:center;color:#4a6080;padding:40px;">Esperando datos — primera barra 4H en progreso</td></tr>';
     var ce=document.getElementById('trade-count');if(ce)ce.textContent=fd.length+' registros';
 }
 
@@ -216,9 +283,10 @@ function initSorting(){
     });
 }
 
-/* ═══ CHARTS — CAMPOS REALES ═══ */
+/* ═══ CHARTS ═══ */
 function renderCharts(){
-    if(historyData.length===0)return;
+    var hd=historyData[currentVersion]||[];
+    if(hd.length===0)return;
     mkChart('proba-chart','proba_high',false,0,1);
     mkChart('position-chart','position_size',true,0,0.6);
     mkChart('balance-chart','virtual_balance',false);
@@ -229,8 +297,9 @@ function mkChart(canvasId,field,fill,yMin,yMax,reverse){
     var cv=document.getElementById(canvasId);if(!cv)return;
     var colors={'ETH/USDT':'#627eea','BTC/USDT':'#f7931a','SOL/USDT':'#00ffa3'};
     var datasets=[];
+    var hd=historyData[currentVersion]||[];
     for(var asset in colors){
-        var ad=historyData.filter(function(r){return r.asset===asset;});
+        var ad=hd.filter(function(r){return r.asset===asset;});
         if(ad.length===0)continue;
         var multiplier=(field==='current_dd'||field==='position_size')?100:1;
         datasets.push({
@@ -243,8 +312,8 @@ function mkChart(canvasId,field,fill,yMin,yMax,reverse){
         });
     }
     var first=null;
-    for(var a in colors){if(historyData.some(function(r){return r.asset===a;})){first=a;break;}}
-    var refData=first?historyData.filter(function(r){return r.asset===first;}):historyData;
+    for(var a in colors){if(hd.some(function(r){return r.asset===a;})){first=a;break;}}
+    var refData=first?hd.filter(function(r){return r.asset===first;}):hd;
     var labels=refData.map(function(r){
         if(!r.timestamp)return'';var d=new Date(r.timestamp);
         return d.toLocaleDateString('es-CU',{month:'short',day:'numeric',timeZone:'America/Havana'})+' '
@@ -253,7 +322,6 @@ function mkChart(canvasId,field,fill,yMin,yMax,reverse){
     var key=canvasId.replace('-chart','');if(charts[key])charts[key].destroy();
     var yOpts={ticks:{color:'#4a6080',font:{family:'Inter',size:10}},grid:{color:'rgba(13,40,71,0.5)'}};
     if(yMin!==undefined)yOpts.min=yMin;if(yMax!==undefined)yOpts.max=yMax;if(reverse)yOpts.reverse=true;
-    // Suffix for tooltips
     var suffix='';
     if(field==='current_dd'||field==='position_size')suffix='%';
     if(field==='virtual_balance')suffix=' USD';
@@ -277,8 +345,24 @@ function renderSystem(d){
     setMeter('cpu',d.cpu_percent);
     if(d.memory){setMeter('memory',d.memory.percent);el('memory-detail',d.memory.used_gb.toFixed(1)+' GB / '+d.memory.total_gb.toFixed(1)+' GB');}
     if(d.disk){setMeter('disk',d.disk.percent);el('disk-detail',d.disk.used_gb.toFixed(1)+' GB / '+d.disk.total_gb.toFixed(1)+' GB');}
+
+    // Update service badges
+    var ss=d.service_status||{};
+    var v209Badge=document.getElementById('service-v209');
+    var v21Badge=document.getElementById('service-v21');
+    if(v209Badge){
+        var v209Active=ss['orion-v209']==='active';
+        v209Badge.textContent='V20.9: '+(v209Active?'Activo':ss['orion-v209']||'--');
+        v209Badge.className='badge '+(v209Active?'badge-success':'badge-warning');
+    }
+    if(v21Badge){
+        var v21Active=ss['orion-v21']==='active';
+        v21Badge.textContent='V21.0: '+(v21Active?'Activo':ss['orion-v21']||'--');
+        v21Badge.className='badge '+(v21Active?'badge-success':'badge-warning');
+    }
+
     var se=document.getElementById('service-status-detail');
-    if(se){var ia=d.service_status==='active';se.textContent=ia?'Activo':d.service_status;se.className='badge '+(ia?'badge-success':'badge-warning');}
+    if(se){var ia=ss['orion-v209']==='active';se.textContent=ia?'Activo':ss['orion-v209']||'--';se.className='badge '+(ia?'badge-success':'badge-warning');}
     el('hostname',d.hostname||'--');el('uptime',d.uptime||'--');
 }
 

@@ -12,6 +12,9 @@ class Config:
     ORION_LOG_PATH = '/home/ubuntu/orion/paper_trading_log_v20_9.csv'
     ORION_MODEL_PATH = '/home/ubuntu/orion/model_v20_6_1.pkl'
 
+    ORION_V21_STATE_PATH = '/home/ubuntu/orion/state_v21.json'
+    ORION_V21_LOG_PATH = '/home/ubuntu/orion/paper_trading_log_v21.csv'
+
     OKX_TICKER_URL = 'https://www.okx.com/api/v5/market/ticker'
     PRICE_CACHE_SECONDS = 30
 

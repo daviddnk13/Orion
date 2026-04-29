@@ -169,6 +169,21 @@ def api_status():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/v21/status')
+@login_required
+def api_v21_status():
+    state_path = Config.ORION_V21_STATE_PATH
+    try:
+        with open(state_path, 'r') as f:
+            state = json.load(f)
+        return jsonify(state)
+    except FileNotFoundError:
+        return jsonify({'error': 'State file not found'}), 404
+    except json.JSONDecodeError as e:
+        return jsonify({'error': f'Invalid JSON: {e}'}), 500
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/api/prices')
 @login_required
 def api_prices():
@@ -199,6 +214,30 @@ def api_history():
         app.logger.error(f"History read error: {e}")
         return jsonify([])
 
+@app.route('/api/v21/history')
+@login_required
+def api_v21_history():
+    asset = request.args.get('asset', '').strip()
+    limit = request.args.get('limit', 100, type=int)
+    limit = max(1, min(limit, 1000))
+
+    log_path = Config.ORION_V21_LOG_PATH
+    history = []
+    try:
+        with open(log_path, 'r', newline='') as f:
+            reader = csv.DictReader(f)
+            rows = list(reader)
+            if asset:
+                rows = [r for r in rows if r.get('asset') == asset]
+            for row in reversed(rows[:limit]):
+                history.append(row)
+        return jsonify(history)
+    except FileNotFoundError:
+        return jsonify([])
+    except Exception as e:
+        app.logger.error(f"V21 History read error: {e}")
+        return jsonify([])
+
 @app.route('/api/system')
 @login_required
 def api_system():
@@ -209,16 +248,20 @@ def api_system():
 
         hostname = subprocess.getoutput('hostname').strip()
 
-        try:
-            result = subprocess.run(
-                ['systemctl', 'is-active', 'orion-v209'],
-                capture_output=True, text=True, timeout=3
-            )
-            service_status = result.stdout.strip()
-            if result.returncode != 0:
-                service_status = 'unknown'
-        except Exception:
-            service_status = 'error'
+        # Check both services
+        service_status = {}
+        for service in ['orion-v209', 'orion-v21']:
+            try:
+                result = subprocess.run(
+                    ['systemctl', 'is-active', service],
+                    capture_output=True, text=True, timeout=3
+                )
+                status = result.stdout.strip()
+                if result.returncode != 0:
+                    status = 'unknown'
+                service_status[service] = status
+            except Exception:
+                service_status[service] = 'error'
 
         try:
             uptime_sec = time.time() - psutil.boot_time()

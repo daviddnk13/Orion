@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Orion Dashboard V20.9</title>
+    <title>Orion Dashboard V20.9 + V21.0</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -51,10 +51,19 @@
     <header class="header">
         <div class="header-left">
             <div class="header-logo"><svg width="32" height="36" viewBox="0 0 90 100" fill="none"><path d="M45 4 L82 24 L82 68 L45 88 L8 68 L8 24 Z" stroke="#00a8ff" stroke-width="2" fill="none" opacity="0.4"/><path d="M45 14 L72 30 L72 62 L45 78 L18 62 L18 30 Z" stroke="#00a8ff" stroke-width="2.5" fill="rgba(0,119,255,0.06)"/><circle cx="45" cy="46" r="5" fill="#00e5ff" opacity="0.8"/></svg></div>
-            <h1>Orion V20.9</h1>
-            <span class="badge badge-success" id="service-status">Conectando...</span>
+            <h1>Orion <span id="version-display">V20.9</span></h1>
+            <div class="service-badges">
+                <span class="badge badge-success" id="service-v209">V20.9: --</span>
+                <span class="badge badge-success" id="service-v21">V21.0: --</span>
+            </div>
         </div>
-        <div class="header-center"><div class="header-clock"><span class="clock-time" id="live-clock">--:--:--</span><span class="clock-date" id="live-date">---</span></div></div>
+        <div class="header-center">
+            <div class="version-toggle">
+                <button class="version-btn active" data-version="v209">V20.9</button>
+                <button class="version-btn" data-version="v21">V21.0</button>
+            </div>
+            <div class="header-clock"><span class="clock-time" id="live-clock">--:--:--</span><span class="clock-date" id="live-date">---</span></div>
+        </div>
         <div class="header-right">
             <span class="auto-reload" id="auto-reload"><span class="pulse-dot"></span> Auto-recarga activa</span>
             <a href="{{ url_for('logout') }}" class="btn btn-secondary btn-sm">Cerrar Sesion</a>
@@ -76,6 +85,16 @@
                     <div class="metric"><span class="label">Drawdown Portafolio</span><span class="value" id="portfolio-dd">--%</span></div>
                     <div class="metric"><span class="label">Iteraciones Totales</span><span class="value" id="step-count">--</span></div>
                     <div class="metric"><span class="label">Ultima Actualizacion</span><span class="value" id="state-update">--</span></div>
+                </div>
+            </div>
+            <div class="card comparison-card" id="comparison-card" style="display:none;"><h2>Comparacion V20.9 vs V21.0</h2>
+                <div class="comparison-grid">
+                    <div class="comparison-item"><span class="comparison-label">Balance V20.9</span><span class="comparison-value" id="comp-v209-balance">$--</span></div>
+                    <div class="comparison-item"><span class="comparison-label">Balance V21.0</span><span class="comparison-value" id="comp-v21-balance">$--</span></div>
+                    <div class="comparison-item"><span class="comparison-label">DD V20.9</span><span class="comparison-value" id="comp-v209-dd">--%</span></div>
+                    <div class="comparison-item"><span class="comparison-label">DD V21.0</span><span class="comparison-value" id="comp-v21-dd">--%</span></div>
+                    <div class="comparison-item"><span class="comparison-label">ETH Pos V20.9</span><span class="comparison-value" id="comp-v209-eth-pos">--%</span></div>
+                    <div class="comparison-item"><span class="comparison-label">ETH Pos V21.0</span><span class="comparison-value" id="comp-v21-eth-pos">--%</span></div>
                 </div>
             </div>
             <h3 class="section-title">Precios en Tiempo Real</h3>
@@ -112,6 +131,8 @@
                     <th data-sort="vol_ratio">Ratio</th>
                     <th data-sort="dd_scalar">DD Scale</th>
                     <th data-sort="latency_ms">Latencia</th>
+                    <th data-sort="edge_state" class="v21-only">Edge</th>
+                    <th data-sort="edge_proba" class="v21-only">Edge Prob</th>
                 </tr></thead><tbody></tbody></table></div>
             </div>
         </div>
@@ -124,7 +145,7 @@
             </div>
         </div>
     </main>
-    <footer class="footer"><span>Orion V20.9 — Paper Trading Engine</span><span class="footer-time" id="last-update">--:--:--</span></footer>
+    <footer class="footer"><span>Orion V20.9 + V21.0 — Paper Trading Engine</span><span class="footer-time" id="last-update">--:--:--</span></footer>
 </div>
 {% endif %}
 <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
