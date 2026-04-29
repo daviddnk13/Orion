@@ -25,9 +25,16 @@ LAGS = [1, 3, 6]
 
 # Test period
 TEST_START = '2025-01-01'
+TEST_END = '2026-04-29'
 
 # Initial capital
 INITIAL_CAPITAL = 10000
+
+# Bars per year for 4H timeframe
+BARS_PER_YEAR = 6 * 365  # 6 bars per day * 365 days
+
+# Data directory
+DATA_DIR = os.path.expanduser('~/orion/data')
 
 
 def send_telegram(message):
