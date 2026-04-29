@@ -271,6 +271,9 @@ def compute_v21_features(df):
     Copiada de v21_lgbm_training.py compute_features() + add_lags().
     """
     df = df.copy()
+    # FIX: fetch_okx_ohlcv() returns 'vol', but compute_v21_features() expects 'volume'
+    if 'vol' in df.columns and 'volume' not in df.columns:
+        df = df.rename(columns={'vol': 'volume'})
     df['log_return'] = np.log(df['close'] / df['close'].shift(1))
     df['sma20'] = df['close'].rolling(20).mean()
     df['std20'] = df['close'].rolling(20).std()
