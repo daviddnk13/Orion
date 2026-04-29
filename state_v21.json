@@ -1,0 +1,41 @@
+{
+  "version": "21.0",
+  "last_update": "2026-04-29T16:50:20.846445Z",
+  "assets": {
+    "ETH/USDT": {
+      "virtual_balance": 10000.0,
+      "peak_balance": 10000.0,
+      "current_dd": 0.0,
+      "prev_position": 0.0,
+      "prev_close": null,
+      "drift_counter": 0,
+      "ic_history": [],
+      "bar_count": 0
+    },
+    "BTC/USDT": {
+      "virtual_balance": 10000.0,
+      "peak_balance": 10000.0,
+      "current_dd": 0.0,
+      "prev_position": 0.0,
+      "prev_close": null,
+      "drift_counter": 0,
+      "ic_history": [],
+      "bar_count": 0
+    },
+    "SOL/USDT": {
+      "virtual_balance": 10000.0,
+      "peak_balance": 10000.0,
+      "current_dd": 0.0,
+      "prev_position": 0.0,
+      "prev_close": null,
+      "drift_counter": 0,
+      "ic_history": [],
+      "bar_count": 0
+    }
+  },
+  "portfolio": {
+    "total_balance": 30000.0,
+    "portfolio_dd": 0.0,
+    "portfolio_peak": 30000.0
+  }
+}
