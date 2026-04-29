@@ -746,8 +746,10 @@ def execution_cycle():
         asset_state = state["assets"][symbol]
         active_results[symbol]["drift_active"] = (asset_state["drift_counter"] >= DRIFT_CONSECUTIVE_BARS)
 
-    total_balance = sum(active_results[s]["virtual_balance"] for s in active_results)
-    total_peak = sum(state["assets"][s]["peak_balance"] for s in active_results)
+    # FIX: Use virtual_balance from state for ALL assets, not just active ones
+    # This ensures total_balance is correct even when all assets are skipped
+    total_balance = sum(state["assets"][s]["virtual_balance"] for s in state["assets"])
+    total_peak = sum(state["assets"][s]["peak_balance"] for s in state["assets"])
     portfolio_dd = (total_peak - total_balance) / total_peak if total_peak > 0 else 0.0
 
     state["portfolio"]["total_balance"] = total_balance

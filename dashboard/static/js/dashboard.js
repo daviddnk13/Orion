@@ -98,13 +98,30 @@ function fetchStatus(){
 function renderStatus(data){
     var p=data.portfolio||{};
     var tb=p.total_balance||0,pk=p.portfolio_peak||30000,dd=p.portfolio_dd||0;
+
+    // FIX: Detectar state sin barras procesadas
+    var assets=data.assets||{};
+    var totalBars=0;
+    for(var k in assets) if(assets[k]&&assets[k].bar_count) totalBars+=assets[k].bar_count;
+
+    if(totalBars===0){
+        // V21 aún no ha procesado ninguna barra
+        el('portfolio-balance','Esperando primera barra...');
+        el('portfolio-pnl','--');
+        el('portfolio-peak','--');
+        el('portfolio-dd','--');
+        el('step-count','0');
+        el('state-update','Pendiente');
+        return;
+    }
+
     var ib=30000,pnl=((tb-ib)/ib*100);
     anim('portfolio-balance','$'+fN(tb,2));
     var pe=document.getElementById('portfolio-pnl');
     if(pe){pe.textContent=(pnl>=0?'+':'')+pnl.toFixed(2)+'%';pe.className='value '+(pnl>=0?'positive':'negative');}
     anim('portfolio-peak','$'+fN(pk,2));
     anim('portfolio-dd',(dd*100).toFixed(2)+'%');
-    var assets=data.assets||{},bars=0;
+    var bars=0;
     for(var k in assets)if(assets[k]&&assets[k].bar_count)bars+=assets[k].bar_count;
     anim('step-count',bars.toString());
     var lu=data.last_update||'';
@@ -119,6 +136,16 @@ function renderAssetState(data){
     var h='';
     for(var sym in assets){
         var info=assets[sym],ic=icons[sym]||'',cl=colors[sym]||'#00a8ff';
+
+        // FIX: Si bar_count es 0, mostrar estado de espera
+        if(!info || !info.bar_count || info.bar_count === 0){
+            h+='<div class="asset-state-card" style="border-left:3px solid '+cl+'">'
+              +'<div class="asset-state-header"><span style="color:'+cl+';font-size:18px">'+ic+'</span><strong>'+sym+'</strong></div>'
+              +'<div style="text-align:center;color:#4a6080;padding:20px;">Esperando primera barra...</div>'
+              +'</div>';
+            continue;
+        }
+
         var lp=info.ic_history&&info.ic_history.length>0?info.ic_history[info.ic_history.length-1].proba:0;
         var posPct=(info.prev_position*100).toFixed(1);
         var ddPct=(info.current_dd*100).toFixed(2);
