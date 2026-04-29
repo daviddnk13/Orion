@@ -25,6 +25,9 @@ function updateClock(){
 
 /* ═══ VERSION TOGGLE ═══ */
 function initVersionToggle(){
+    // Initialize v21-only columns as hidden on page load
+    document.querySelectorAll('.v21-only').forEach(function(el){el.style.display='none';});
+
     document.querySelectorAll('.version-btn').forEach(function(btn){
         btn.addEventListener('click',function(){
             var ver=btn.dataset.version;
@@ -59,8 +62,37 @@ function initTabs(){
 function fetchStatus(){
     var endpoint=currentVersion==='v209'?'/api/status':'/api/v21/status';
     fetch(endpoint).then(function(r){if(!r.ok)throw new Error();return r.json();})
-    .then(function(d){if(d.error)throw new Error(d.error);stateData[currentVersion]=d;renderStatus(d);renderAssetState(d);updateBadge('activo');})
-    .catch(function(){updateBadge('error');});
+    .then(function(d){
+        if(d.error){
+            // V21 state file not found yet — show waiting message
+            el('portfolio-balance','Esperando datos...');
+            el('portfolio-pnl','--');
+            el('portfolio-peak','--');
+            el('portfolio-dd','--');
+            el('step-count','--');
+            el('state-update','--');
+            var asc=document.getElementById('asset-state-cards');
+            if(asc) asc.innerHTML='<div style="text-align:center;color:#4a6080;padding:40px;">Esperando primera barra de V21.0...</div>';
+            updateBadge('error');
+            return;
+        }
+        stateData[currentVersion]=d;
+        renderStatus(d);
+        renderAssetState(d);
+        updateBadge('activo');
+    })
+    .catch(function(){
+        updateBadge('error');
+        // LIMPIAR datos del DOM cuando falla
+        el('portfolio-balance','Esperando datos...');
+        el('portfolio-pnl','--');
+        el('portfolio-peak','--');
+        el('portfolio-dd','--');
+        el('step-count','--');
+        el('state-update','--');
+        var asc=document.getElementById('asset-state-cards');
+        if(asc) asc.innerHTML='<div style="text-align:center;color:#4a6080;padding:40px;">Esperando primera barra de V21.0...</div>';
+    });
 }
 
 function renderStatus(data){
@@ -208,7 +240,12 @@ function fetchHistory(){
     var endpoint=currentVersion==='v209'?'/api/history?limit=500':'/api/v21/history?limit=500';
     fetch(endpoint).then(function(r){if(!r.ok)throw new Error();return r.json();})
     .then(function(d){historyData[currentVersion]=d;renderTradeLog();renderCharts();})
-    .catch(function(e){console.warn('History:',e);});
+    .catch(function(e){
+        console.warn('History:',e);
+        historyData[currentVersion]=[];
+        renderTradeLog();
+        renderCharts();
+    });
 }
 
 function renderTradeLog(){
