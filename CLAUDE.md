@@ -1,77 +1,78 @@
-# ORION — AI Trading Agent
+# CLAUDE.md — Orion Crypto Trading System
 
-## Project Overview
-Autonomous AI trading agent for crypto markets. Currently in **paper trading phase** (V20.9 Multi-Asset).
-Built by David + Copilot + ChatGPT collaboration. Claude Code implements specs — does NOT design architecture.
+## 1. Think Before Coding
+Don't assume. Don't hide confusion. Surface tradeoffs.
 
-## Current State (April 2026)
-- **Frozen Model**: V20.6.1 LightGBM regime classifier (HIGH/LOW/NORMAL volatility)
-- **Paper Trading Engine**: V20.9 multi-asset (ETH + BTC + SOL) running as systemd service on EC2
-- **Status**: Paper trading evaluation — DO NOT modify model, features, or hyperparameters
-- **Exit Criteria**: Pass -> real capital 1-5% | Fail -> V20.6.2 or regime-aware layer
+- State your assumptions explicitly. If uncertain, ask.
+- If a function exists in another script in this repo, READ IT FIRST before reimplementing.
+- When working with external APIs (CCXT, OKX, Binance), verify limits and pagination behavior.
+- If your implementation produces different numbers than expected (e.g., edge_rate 82% when spec says 18%), STOP and report the discrepancy. Do NOT proceed.
 
-## Architecture
+ORION-SPECIFIC:
+- orion_crypto.py is PRODUCTION (Track A). NEVER modify it.
+- lab/ scripts are EXPERIMENTAL (Track B). All new work goes here.
+- When a spec says "copy function X from script Y", COPY IT EXACTLY. Do not rewrite.
 
-### Model (FROZEN — DO NOT TOUCH)
-- LightGBM Booster: model_v20_6_1.pkl
-- Task: Regime classification (predict P(HIGH_VOL))
-- Output: predict_proba -> position sizing via per-asset mapping
+## 2. Simplicity First
+Minimum code that solves the problem. Nothing speculative.
 
-### Per-Asset Sizing Mappings
-- **ETH**: baseline -> position = (1 - proba)
-- **BTC**: baseline -> position = (1 - proba)
-- **SOL**: confidence_weighted -> position = proba * vol_ratio (inverted)
-- All positions: clipped [0, 0.5], smoothed 0.7/0.3
+- No features beyond what was asked.
+- No abstractions for single-use code.
+- If a working function exists in the codebase, reuse it — don't reimagine it.
+- If told to use h=12, k=1.0, d=0.5: use exactly those values. Don't add flexibility.
 
-### Risk Engine
-- Gradual DD scalar: dd_scalar = clip(1 + dd/0.50, 0.1, 1.0)
-- Regime guard SOL: extreme vol -> reduce position 50%
-- Portfolio exposure cap: 80% total across all assets
-- Config per asset: target_vol (ETH=0.15, BTC=0.12, SOL=0.18), position_cap=0.5
-- Friction: fee=5bps, slip=5bps
+ORION-SPECIFIC:
+- compute_target() is a validated, tested function. Copy it verbatim when needed.
+- fetch_all_ohlcv() with limit=300 is proven to work. Don't change the limit.
+- Don't add logging, monitoring, or error handling beyond what's requested.
 
-### 23 Features (OHLCV-based, order matters)
-ret_4h, rsi_norm, bb_position, macd_norm, ret_4h_lag1, ret_4h_lag2,
-atr_norm, vol_zscore, vol_regime, ret_8h, ret_24h, ema_slope,
-drawdown_market, tf_coherence, dist_ema200, trend_strength,
-parkinson_vol, vol_compression, garman_klass_vol,
-vol_regime_rank, realized_vol_7d, trend_efficiency, realized_vol_1d
+## 3. Surgical Changes
+Touch only what you must. Clean up only your own mess.
 
-WARNING: Model trained with Column_0..Column_22. Feature ORDER IS the mapping.
+- When fixing a bug, change ONLY the lines that fix it.
+- Don't "improve" adjacent code, comments, or formatting.
+- When told to fix 3 instances of a pattern, find and fix ALL of them. Verify count.
+- Match existing style: if the codebase uses single quotes, use single quotes.
 
-### Execution Loop (V20.9)
-- Every 4 hours aligned to candle close + 2.5 min margin
-- Data: OKX via CCXT (ETH, BTC, SOL simultaneously)
-- Telegram: topics 971 (Results), 973 (Alerts)
-- Virtual balance: USD 10,000 initial per asset
-- State: state_v20_9.json
+ORION-SPECIFIC:
+- When fixing a variable reference (e.g., sharpe_edge0 → r['sharpe_edge0']),
+  grep the ENTIRE file for similar patterns. Fix ALL instances.
+- Format strings: if told to change ":+.1pp" to "*100:+.1f", grep for ALL occurrences.
+  Report the count found vs count fixed.
 
-## Infrastructure
-- EC2: ip-172-31-26-81, Ubuntu
-- Service: orion-v209.service
-- Telegram: @Sistem_tradingbot, Group -1003505760554
-- GitHub: https://github.com/daviddnk13/Orion
+## 4. Goal-Driven Execution
+Define success criteria. Loop until verified.
 
-## Key Files
-- orion_crypto.py — V20.9 multi-asset engine (MAIN)
-- model_v20_6_1.pkl — Frozen LightGBM model
-- state_v20_9.json — Persistent state
-- paper_trading_log_v20_9.csv — Trade log
-- .env — Telegram tokens (NOT in git)
+Every task must have verification:
+1. [Step] → verify: [check]
+2. [Step] → verify: [check]
 
-## Rules for Claude Code
-1. Script MUST be self-contained
-2. Do NOT change features/target/folds/horizon without approval
-3. Start from latest working script, modify incrementally
-4. Run python3 -m py_compile before committing
-5. Telegram tokens from env vars, NEVER hardcoded
-6. One variable at a time
-7. Test every code path: fresh state, existing state, all mappings
+ORION-SPECIFIC verification checklist:
+- After implementing compute_target(): verify edge_rate is 15-25% (NOT 80%+)
+- After implementing fetch_all_ohlcv(): verify 8000+ bars downloaded (NOT 300)
+- After any fix: python3 -m py_compile [file] must pass
+- After copying a function: diff the original vs copy, they should be identical
+- After fixing N instances of a pattern: grep confirms 0 remaining instances
 
-## Roadmap
-- V20.9 (CURRENT): Multi-asset paper trading
-- V21.0: Edge Detection layer
-- V21.1: Directional model
-- V22: Shorts + leverage
-- V23: Yield Router
-- V24+: Multi-market + Asset Intelligence
+## 5. Orion Project Rules
+
+### Architecture
+- Track A (Production): ~/orion/orion_crypto.py — NEVER MODIFY
+- Track B (Lab): ~/orion/lab/ — all experimental scripts here
+- Venv: ~/orion/venv/ — always activate before running
+
+### Common Pitfalls (LEARNED FROM EXPERIENCE)
+1. OKX CCXT pagination: use limit=300, NOT 1000. OKX returns max ~300 per request.
+2. compute_target(): edge=1 means the condition PASSES (big move + clean path).
+   If edge_rate > 50%, the logic is INVERTED — stop and fix.
+3. Format strings: Python has no "pp" format spec. Use f"{value*100:+.1f}pp"
+4. Variable scope in loops: when building result dicts, use r['key'] not bare variable names.
+5. Telegram: BOT_TOKEN from env var, never hardcoded. Chat ID: -1003505760554, Topic: 972.
+6. Dependencies: ccxt, scipy, scikit-learn, lightgbm must be in venv.
+
+### Self-Check Before Reporting "Done"
+- [ ] py_compile passes
+- [ ] All instances of a pattern are fixed (grep to confirm)
+- [ ] Numerical outputs match expected ranges from spec
+- [ ] No functions were reimplemented when copy was specified
+- [ ] Track A (orion_crypto.py) was NOT modified

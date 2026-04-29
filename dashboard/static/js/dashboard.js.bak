@@ -1,0 +1,470 @@
+// Orion Dashboard V20.9 — Frontend Application
+// Auto-refresh: status/prices every 30s, system every 60s
+
+const API_TIMEOUT = 10000;
+let refreshIntervalStatus = null;
+let refreshIntervalSystem = null;
+let charts = {};
+
+// Utility: format number with commas
+const fmtNum = (num, decimals = 2) => {
+    if (num === null || num === undefined || isNaN(num)) return '--';
+    return num.toLocaleString('en-US', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+};
+
+// Utility: format percent
+const fmtPct = (num) => {
+    if (num === null || num === undefined || isNaN(num)) return '--';
+    return `${num >= 0 ? '+' : ''}${(num * 100).toFixed(2)}%`;
+};
+
+// Utility: format datetime
+const fmtTime = (isoStr) => {
+    if (!isoStr) return '--';
+    const d = new Date(isoStr);
+    return d.toLocaleString('en-US', { hour12: false });
+};
+
+// Utility: fetch with timeout
+async function fetchAPI(url) {
+    try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT);
+        const resp = await fetch(url, { credentials: 'same-origin', signal: controller.signal });
+        clearTimeout(timeoutId);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        return await resp.json();
+    } catch (err) {
+        console.error(`Fetch error ${url}:`, err);
+        return null;
+    }
+}
+
+// Tab switching
+document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        const tabId = btn.dataset.tab;
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+        btn.classList.add('active');
+        document.getElementById(tabId).classList.add('active');
+        if (tabId === 'charts') loadAndRenderCharts();
+    });
+});
+
+// Get mapping type from asset symbol
+function getMappingType(symbol) {
+    return symbol === 'SOL/USDT' ? 'confidence_weighted' : 'baseline';
+}
+
+// Overview: Render asset cards
+function renderAssetCards(state, prices) {
+    const container = document.getElementById('asset-cards');
+    container.innerHTML = '';
+
+    const assets = state.assets || {};
+
+    for (const [symbol, asset] of Object.entries(assets)) {
+        const priceData = prices[symbol] || {};
+        const price = priceData.price || asset.prev_close || 0;
+        const priceChange = priceData.change || 0;
+        const proba = asset.ic_history && asset.ic_history.length > 0 ? asset.ic_history[asset.ic_history.length - 1].proba : 0;
+        const probaColor = proba > 0.5 ? 'var(--success)' : proba > 0.3 ? 'var(--warning)' : 'var(--danger)';
+        const mappingType = getMappingType(symbol);
+
+        const card = document.createElement('div');
+        card.className = 'asset-card';
+        card.innerHTML = `
+            <div class="asset-header">
+                <span class="asset-title">${symbol}</span>
+                <span class="asset-price ${priceChange < 0 ? 'negative' : ''}">$${fmtNum(price, 2)}</span>
+            </div>
+            <div class="asset-row">
+                <span class="asset-label">Position</span>
+                <span class="asset-value">${fmtNum(asset.prev_position * 100, 1)}%</span>
+            </div>
+            <div class="position-bar">
+                <div class="position-fill" style="width: ${asset.prev_position * 100}%"></div>
+            </div>
+            <div class="asset-row">
+                <span class="asset-label">P(High Vol)</span>
+                <span class="asset-value" style="color: ${probaColor}">${fmtNum(proba, 3)}</span>
+            </div>
+            <div class="asset-row">
+                <span class="asset-label">Balance</span>
+                <span class="asset-value">$${fmtNum(asset.virtual_balance, 2)}</span>
+            </div>
+            <div class="asset-row">
+                <span class="asset-label">Drawdown</span>
+                <span class="asset-value">${fmtPct(asset.current_dd)}</span>
+            </div>
+            <div class="asset-row">
+                <span class="asset-label">Mapping</span>
+                <span class="asset-value">${mappingType}</span>
+            </div>
+            <div class="asset-row">
+                <span class="asset-label">Drift</span>
+                <span class="asset-value">${asset.drift_counter || 0} ${asset.drift_active ? '(ACTIVE)' : ''}</span>
+            </div>
+        `;
+        container.appendChild(card);
+    }
+}
+
+// Overview: Render portfolio allocation donut
+function renderAllocationChart(state) {
+    const ctx = document.getElementById('allocation-chart');
+    if (!ctx) return;
+
+    const assets = state.assets || {};
+    const labels = [];
+    const data = [];
+    const colors = ['#2196F3', '#00bcd4', '#4fc3f7'];
+
+    for (const [symbol, asset] of Object.entries(assets)) {
+        labels.push(symbol);
+        data.push(asset.virtual_balance || 0);
+    }
+
+    if (charts.allocation) charts.allocation.destroy();
+
+    charts.allocation = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+            labels: labels,
+            datasets: [{
+                data: data,
+                backgroundColor: colors,
+                borderWidth: 0
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            plugins: {
+                legend: {
+                    position: 'bottom',
+                    labels: { color: '#e2e8f0', font: { family: 'Inter' } }
+                }
+            }
+        }
+    });
+}
+
+// Fetch and render Overview
+async function refreshOverview() {
+    const state = await fetchAPI('/api/status');
+    if (!state || state.error) {
+        console.warn('Failed to load state');
+        return;
+    }
+
+    const prices = await fetchAPI('/api/prices');
+
+    // Portfolio summary
+    const portfolio = state.portfolio || {};
+    const totalBalance = portfolio.total_balance || 0;
+    const portfolioDD = portfolio.portfolio_dd || 0;
+    const initialTotal = 30000; // 3 assets * $10k
+
+    document.getElementById('portfolio-balance').textContent = `$${fmtNum(totalBalance, 2)}`;
+    document.getElementById('portfolio-pnl').textContent = fmtPct((totalBalance - initialTotal) / initialTotal);
+    document.getElementById('portfolio-pnl').style.color = totalBalance >= initialTotal ? 'var(--success)' : 'var(--danger)';
+
+    // Step count (use any asset bar_count)
+    const anyAsset = Object.values(state.assets || {})[0];
+    document.getElementById('step-count').textContent = anyAsset ? anyAsset.bar_count : '--';
+
+    // Last update
+    document.getElementById('last-update').textContent = fmtTime(state.last_update);
+    document.getElementById('state-update').textContent = fmtTime(state.last_update);
+
+    // Asset cards
+    renderAssetCards(state, prices);
+
+    // Allocation chart
+    renderAllocationChart(state);
+}
+
+// Trade Log: Load and render
+async function refreshTradeLog() {
+    const assetFilter = document.getElementById('log-asset-filter').value;
+    const url = `/api/history${assetFilter ? `?asset=${encodeURIComponent(assetFilter)}` : ''}&limit=100`;
+    const history = await fetchAPI(url);
+
+    const tbody = document.querySelector('#trade-log-table tbody');
+    if (!tbody) return;
+
+    tbody.innerHTML = '';
+
+    if (!history || history.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:2rem;">No trade data available</td></tr>';
+        return;
+    }
+
+    history.slice(0, 50).forEach(row => {
+        const tr = document.createElement('tr');
+
+        // Parse fields from actual CSV
+        const proba = parseFloat(row.proba_high) || 0;
+        const position = parseFloat(row.position_size) || 0;
+        const price = parseFloat(row.price_close) || 0;
+        const pnl_usd = parseFloat(row.pnl) || 0;
+        const balance = parseFloat(row.virtual_balance) || 0;
+        const dd = parseFloat(row.current_dd) || 0;
+        const driftReduced = row.drift_reduced === 'True' || row.drift_reduced === true;
+
+        // Compute P&L %: pnl / (balance - pnl) = previous balance
+        const prev_balance = balance - pnl_usd;
+        const pnl_pct = prev_balance !== 0 ? pnl_usd / Math.abs(prev_balance) : 0;
+        const pnlClass = pnl_pct >= 0 ? 'positive' : 'negative';
+
+        tr.innerHTML = `
+            <td>${fmtTime(row.timestamp)}</td>
+            <td>${row.asset}</td>
+            <td>${fmtNum(proba, 3)}</td>
+            <td>${fmtNum(position * 100, 1)}%</td>
+            <td>$${fmtNum(price, 2)}</td>
+            <td class="${pnlClass}">${fmtPct(pnl_pct)}</td>
+            <td class="${pnlClass}">${fmtNum(pnl_usd, 2)}</td>
+            <td>$${fmtNum(balance, 2)}</td>
+            <td>${fmtPct(dd)}</td>
+        `;
+        tbody.appendChild(tr);
+    });
+}
+
+// System: Refresh
+async function refreshSystem() {
+    const data = await fetchAPI('/api/system');
+    if (!data || data.error) return;
+
+    // CPU
+    const cpuPct = data.cpu_percent || 0;
+    document.getElementById('cpu-meter').style.width = `${cpuPct}%`;
+    document.getElementById('cpu-value').textContent = `${cpuPct.toFixed(1)}%`;
+    document.getElementById('cpu-value').className = cpuPct > 80 ? 'meter-value danger' : cpuPct > 60 ? 'meter-value warning' : 'meter-value';
+
+    // Memory
+    const memPct = data.memory?.percent || 0;
+    document.getElementById('memory-meter').style.width = `${memPct}%`;
+    document.getElementById('memory-value').textContent = `${memPct.toFixed(1)}%`;
+    document.getElementById('memory-detail').textContent = `${(data.memory.used_gb || 0).toFixed(1)} GB / ${(data.memory.total_gb || 0).toFixed(1)} GB`;
+
+    // Disk
+    const diskPct = data.disk?.percent || 0;
+    document.getElementById('disk-meter').style.width = `${diskPct}%`;
+    document.getElementById('disk-value').textContent = `${diskPct.toFixed(1)}%`;
+    document.getElementById('disk-detail').textContent = `${(data.disk.used_gb || 0).toFixed(1)} GB / ${(data.disk.total_gb || 0).toFixed(1)} GB`;
+
+    // Service
+    const statusBadge = document.getElementById('service-status');
+    const statusDetail = document.getElementById('service-status-detail');
+    const serviceStatus = data.service_status || 'unknown';
+    let statusClass = '';
+    if (serviceStatus === 'active') statusClass = '';
+    else if (serviceStatus === 'failed' || serviceStatus === 'error') statusClass = 'danger';
+    else statusClass = 'warning';
+    statusBadge.textContent = serviceStatus;
+    statusBadge.className = `badge ${statusClass}`;
+    statusDetail.textContent = serviceStatus;
+    statusDetail.className = `badge ${statusClass}`;
+
+    document.getElementById('hostname').textContent = data.hostname || '--';
+    document.getElementById('uptime').textContent = data.uptime || '--';
+}
+
+// Charts: Load historical data from CSV
+async function loadChartData() {
+    // Get full history for each asset (limit 300 points)
+    const assets = ['ETH/USDT', 'BTC/USDT', 'SOL/USDT'];
+    const history = {};
+
+    for (const asset of assets) {
+        const data = await fetchAPI(`/api/history?asset=${encodeURIComponent(asset)}&limit=300`);
+        if (data && data.length > 0) {
+            // Parse actual CSV fields
+            const parsed = data.map(row => {
+                const proba = parseFloat(row.proba_high) || 0;
+                const position = parseFloat(row.position_size) || 0;
+                const balance = parseFloat(row.virtual_balance) || 0;
+                const dd = parseFloat(row.current_dd) || 0;
+                // We can also include vol_ratio, dd_scalar if desired
+                return {
+                    timestamp: row.timestamp,
+                    proba: proba,
+                    position: position,
+                    balance: balance,
+                    dd: dd,
+                    vol_ratio: parseFloat(row.vol_ratio) || 0,
+                    dd_scalar: parseFloat(row.dd_scalar) || 1
+                };
+            }).reverse(); // chronological order
+            history[asset] = parsed;
+        }
+    }
+    return history;
+}
+
+// Charts: Render all charts
+function renderCharts(history) {
+    // Colors for assets
+    const colors = {
+        'ETH/USDT': '#2196F3',
+        'BTC/USDT': '#00bcd4',
+        'SOL/USDT': '#4fc3f7'
+    };
+
+    // Destroy existing charts
+    ['proba', 'position', 'balance', 'drawdown'].forEach(k => {
+        if (charts[k]) charts[k].destroy();
+    });
+
+    const commonOptions = {
+        responsive: true,
+        maintainAspectRatio: true,
+        plugins: {
+            legend: { labels: { color: '#e2e8f0', font: { family: 'Inter' } } }
+        },
+        scales: {
+            x: {
+                type: 'time',
+                time: { unit: 'day', tooltipFormat: 'MMM d, HH:mm' },
+                ticks: { maxTicksLimit: 8, color: '#94a3b8' },
+                grid: { color: '#1a2744' }
+            },
+            y: {
+                ticks: { color: '#94a3b8' },
+                grid: { color: '#1a2744' }
+            }
+        }
+    };
+
+    // 1. Proba chart (IC)
+    const ctxProba = document.getElementById('proba-chart');
+    if (ctxProba) {
+        const datasets = [];
+        for (const [asset, data] of Object.entries(history)) {
+            datasets.push({
+                label: asset,
+                data: data.map(d => ({ x: d.timestamp, y: d.proba })),
+                borderColor: colors[asset],
+                backgroundColor: colors[asset],
+                fill: false,
+                tension: 0.1,
+                pointRadius: 0
+            });
+        }
+        charts.proba = new Chart(ctxProba, {
+            type: 'line',
+            data: { datasets },
+            options: {
+                ...commonOptions,
+                scales: { ...commonOptions.scales, y: { ...commonOptions.scales.y, min: 0, max: 1 } },
+                plugins: { title: { display: true, text: 'Model Confidence (P(High Vol))', color: '#e2e8f0' } }
+            }
+        });
+    }
+
+    // 2. Position chart
+    const ctxPos = document.getElementById('position-chart');
+    if (ctxPos) {
+        const datasets = [];
+        for (const [asset, data] of Object.entries(history)) {
+            datasets.push({
+                label: asset,
+                data: data.map(d => ({ x: d.timestamp, y: d.position * 100 })),
+                borderColor: colors[asset],
+                fill: false,
+                tension: 0.1,
+                pointRadius: 0
+            });
+        }
+        charts.position = new Chart(ctxPos, {
+            type: 'line',
+            data: { datasets },
+            options: {
+                ...commonOptions,
+                scales: { ...commonOptions.scales, y: { ...commonOptions.scales.y, min: 0, max: 50 } },
+                plugins: { title: { display: true, text: 'Position Size (%)', color: '#e2e8f0' } }
+            }
+        });
+    }
+
+    // 3. Balance chart
+    const ctxBal = document.getElementById('balance-chart');
+    if (ctxBal) {
+        const datasets = [];
+        for (const [asset, data] of Object.entries(history)) {
+            datasets.push({
+                label: asset,
+                data: data.map(d => ({ x: d.timestamp, y: d.balance })),
+                borderColor: colors[asset],
+                fill: false,
+                tension: 0.1,
+                pointRadius: 0
+            });
+        }
+        charts.balance = new Chart(ctxBal, {
+            type: 'line',
+            data: { datasets },
+            options: {
+                ...commonOptions,
+                plugins: { title: { display: true, text: 'Virtual Balance ($)', color: '#e2e8f0' } }
+            }
+        });
+    }
+
+    // 4. Drawdown chart
+    const ctxDD = document.getElementById('drawdown-chart');
+    if (ctxDD) {
+        const datasets = [];
+        for (const [asset, data] of Object.entries(history)) {
+            datasets.push({
+                label: asset,
+                data: data.map(d => ({ x: d.timestamp, y: d.dd * 100 })),
+                borderColor: colors[asset],
+                fill: false,
+                tension: 0.1,
+                pointRadius: 0
+            });
+        }
+        charts.drawdown = new Chart(ctxDD, {
+            type: 'line',
+            data: { datasets },
+            options: {
+                ...commonOptions,
+                scales: { ...commonOptions.scales, y: { ...commonOptions.scales.y, min: -50, max: 0 } },
+                plugins: { title: { display: true, text: 'Drawdown (%)', color: '#e2e8f0' } }
+            }
+        });
+    }
+}
+
+async function loadAndRenderCharts() {
+    const history = await loadChartData();
+    if (history) renderCharts(history);
+}
+
+// Event listeners
+document.getElementById('refresh-log').addEventListener('click', refreshTradeLog);
+document.getElementById('log-asset-filter').addEventListener('change', refreshTradeLog);
+
+// Initial load + auto-refresh
+async function init() {
+    await refreshOverview();
+    await refreshTradeLog();
+    await refreshSystem();
+    await loadAndRenderCharts();
+
+    // Auto-refresh intervals
+    refreshIntervalStatus = setInterval(async () => {
+        await refreshOverview();
+        await refreshTradeLog();
+    }, 30000);
+
+    refreshIntervalSystem = setInterval(refreshSystem, 60000);
+}
+
+// Start when DOM ready
+document.addEventListener('DOMContentLoaded', init);

@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Orion Dashboard V20.9</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+</head>
+<body>
+{% if not session.get('authenticated') %}
+<div class="login-container">
+    <div class="login-box">
+        <div class="login-header">
+            <div class="logo-container">
+                <svg width="90" height="100" viewBox="0 0 90 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <defs><filter id="glow"><feGaussianBlur stdDeviation="3" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter><linearGradient id="hexGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#0077ff"/><stop offset="100%" stop-color="#00e5ff"/></linearGradient></defs>
+                    <path d="M45 4 L82 24 L82 68 L45 88 L8 68 L8 24 Z" stroke="url(#hexGrad)" stroke-width="1.5" fill="none" opacity="0.25"/>
+                    <path d="M45 14 L72 30 L72 62 L45 78 L18 62 L18 30 Z" stroke="url(#hexGrad)" stroke-width="2" fill="rgba(0,119,255,0.04)"/>
+                    <line x1="45" y1="14" x2="45" y2="4" stroke="#00a8ff" stroke-width="1" opacity="0.5"/><line x1="72" y1="30" x2="82" y2="24" stroke="#00a8ff" stroke-width="1" opacity="0.5"/>
+                    <line x1="72" y1="62" x2="82" y2="68" stroke="#00a8ff" stroke-width="1" opacity="0.5"/><line x1="45" y1="78" x2="45" y2="88" stroke="#00a8ff" stroke-width="1" opacity="0.5"/>
+                    <line x1="18" y1="62" x2="8" y2="68" stroke="#00a8ff" stroke-width="1" opacity="0.5"/><line x1="18" y1="30" x2="8" y2="24" stroke="#00a8ff" stroke-width="1" opacity="0.5"/>
+                    <circle cx="45" cy="14" r="2.5" fill="#00a8ff"/><circle cx="72" cy="30" r="2.5" fill="#00a8ff"/><circle cx="72" cy="62" r="2.5" fill="#00a8ff"/>
+                    <circle cx="45" cy="78" r="2.5" fill="#00a8ff"/><circle cx="18" cy="62" r="2.5" fill="#00a8ff"/><circle cx="18" cy="30" r="2.5" fill="#00a8ff"/>
+                    <line x1="45" y1="14" x2="45" y2="40" stroke="#00a8ff" stroke-width="0.6" opacity="0.25"/><line x1="72" y1="30" x2="51" y2="43" stroke="#00a8ff" stroke-width="0.6" opacity="0.25"/>
+                    <line x1="72" y1="62" x2="51" y2="49" stroke="#00a8ff" stroke-width="0.6" opacity="0.25"/><line x1="45" y1="78" x2="45" y2="52" stroke="#00a8ff" stroke-width="0.6" opacity="0.25"/>
+                    <line x1="18" y1="62" x2="39" y2="49" stroke="#00a8ff" stroke-width="0.6" opacity="0.25"/><line x1="18" y1="30" x2="39" y2="43" stroke="#00a8ff" stroke-width="0.6" opacity="0.25"/>
+                    <circle cx="45" cy="46" r="8" fill="none" stroke="#00e5ff" stroke-width="1.5" opacity="0.6" filter="url(#glow)"/>
+                    <circle cx="45" cy="46" r="3" fill="#00e5ff" filter="url(#glow)"/>
+                    <text x="45" y="96" text-anchor="middle" fill="#00a8ff" font-family="Inter" font-size="7" font-weight="600" letter-spacing="3" opacity="0.6">ORION</text>
+                </svg>
+            </div>
+            <h1>Orion Dashboard</h1>
+            <p>V20.9 — Monitor de Paper Trading</p>
+        </div>
+        {% with messages = get_flashed_messages() %}{% if messages %}<div class="alert error">{{ messages[0] }}</div>{% endif %}{% endwith %}
+        <form method="POST" action="{{ url_for('login') }}">
+            <div class="form-group"><label for="password">Contrasena</label><input type="password" id="password" name="password" placeholder="Ingresa tu contrasena" required autocomplete="current-password" autofocus></div>
+            {% if turnstile_site_key %}<div class="cf-turnstile" data-sitekey="{{ turnstile_site_key }}" data-theme="dark"></div>{% endif %}
+            <button type="submit" class="btn btn-primary btn-block">Iniciar Sesion</button>
+        </form>
+        <div class="login-footer"><span>Conexion segura</span></div>
+    </div>
+</div>
+{% if turnstile_site_key %}<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>{% endif %}
+{% else %}
+<div class="container">
+    <header class="header">
+        <div class="header-left">
+            <div class="header-logo"><svg width="32" height="36" viewBox="0 0 90 100" fill="none"><path d="M45 4 L82 24 L82 68 L45 88 L8 68 L8 24 Z" stroke="#00a8ff" stroke-width="2" fill="none" opacity="0.4"/><path d="M45 14 L72 30 L72 62 L45 78 L18 62 L18 30 Z" stroke="#00a8ff" stroke-width="2.5" fill="rgba(0,119,255,0.06)"/><circle cx="45" cy="46" r="5" fill="#00e5ff" opacity="0.8"/></svg></div>
+            <h1>Orion V20.9</h1>
+            <span class="badge badge-success" id="service-status">Conectando...</span>
+        </div>
+        <div class="header-center"><div class="header-clock"><span class="clock-time" id="live-clock">--:--:--</span><span class="clock-date" id="live-date">---</span></div></div>
+        <div class="header-right">
+            <span class="auto-reload" id="auto-reload"><span class="pulse-dot"></span> Auto-recarga activa</span>
+            <a href="{{ url_for('logout') }}" class="btn btn-secondary btn-sm">Cerrar Sesion</a>
+        </div>
+    </header>
+    <nav class="tabs">
+        <button class="tab-btn active" data-tab="overview">Resumen</button>
+        <button class="tab-btn" data-tab="charts">Graficos</button>
+        <button class="tab-btn" data-tab="trades">Historial</button>
+        <button class="tab-btn" data-tab="system">Sistema</button>
+    </nav>
+    <main class="tab-content">
+        <div id="overview" class="tab-pane active">
+            <div class="card portfolio-card"><h2>Resumen del Portafolio</h2>
+                <div class="portfolio-grid">
+                    <div class="metric"><span class="label">Balance Total</span><span class="value" id="portfolio-balance">$--</span></div>
+                    <div class="metric"><span class="label">P&L Total</span><span class="value" id="portfolio-pnl">--%</span></div>
+                    <div class="metric"><span class="label">Pico Maximo</span><span class="value" id="portfolio-peak">$--</span></div>
+                    <div class="metric"><span class="label">Drawdown Portafolio</span><span class="value" id="portfolio-dd">--%</span></div>
+                    <div class="metric"><span class="label">Iteraciones Totales</span><span class="value" id="step-count">--</span></div>
+                    <div class="metric"><span class="label">Ultima Actualizacion</span><span class="value" id="state-update">--</span></div>
+                </div>
+            </div>
+            <h3 class="section-title">Precios en Tiempo Real</h3>
+            <div class="asset-cards" id="asset-cards">
+                <div class="asset-card skeleton"><div class="skeleton-line"></div><div class="skeleton-line short"></div></div>
+                <div class="asset-card skeleton"><div class="skeleton-line"></div><div class="skeleton-line short"></div></div>
+                <div class="asset-card skeleton"><div class="skeleton-line"></div><div class="skeleton-line short"></div></div>
+            </div>
+            <h3 class="section-title">Estado del Motor por Activo</h3>
+            <div class="asset-state-cards" id="asset-state-cards">
+                <div class="asset-card skeleton"><div class="skeleton-line"></div><div class="skeleton-line short"></div></div>
+            </div>
+            <div class="card"><h2>Asignacion del Portafolio</h2><div class="chart-container"><canvas id="allocation-chart"></canvas></div></div>
+        </div>
+        <div id="charts" class="tab-pane">
+            <div class="chart-row"><div class="card"><h2>Probabilidad de Alta Volatilidad</h2><div class="chart-container tall"><canvas id="proba-chart"></canvas></div></div></div>
+            <div class="chart-row"><div class="card"><h2>Historial de Posiciones (%)</h2><div class="chart-container"><canvas id="position-chart"></canvas></div></div><div class="card"><h2>Historial de Balance (USD)</h2><div class="chart-container"><canvas id="balance-chart"></canvas></div></div></div>
+            <div class="chart-row"><div class="card"><h2>Drawdown (%)</h2><div class="chart-container"><canvas id="drawdown-chart"></canvas></div></div></div>
+        </div>
+        <div id="trades" class="tab-pane">
+            <div class="card">
+                <div class="toolbar"><div class="toolbar-left"><label>Filtrar por activo:<select id="log-asset-filter"><option value="">Todos</option><option value="ETH/USDT">ETH/USDT</option><option value="BTC/USDT">BTC/USDT</option><option value="SOL/USDT">SOL/USDT</option></select></label><span class="trade-count" id="trade-count">-- registros</span></div><button class="btn btn-primary btn-sm" id="refresh-log">Actualizar</button></div>
+                <div class="table-responsive"><table class="data-table" id="trade-log-table"><thead><tr>
+                    <th data-sort="timestamp">Fecha</th>
+                    <th data-sort="asset">Activo</th>
+                    <th data-sort="proba_high">Prob.</th>
+                    <th data-sort="position_size">Posicion</th>
+                    <th data-sort="price_close">Precio</th>
+                    <th data-sort="pnl">P&L %</th>
+                    <th data-sort="pnl">P&L $</th>
+                    <th data-sort="virtual_balance">Balance</th>
+                    <th data-sort="current_dd">DD</th>
+                    <th data-sort="realized_vol">Vol</th>
+                    <th data-sort="vol_ratio">Ratio</th>
+                    <th data-sort="dd_scalar">DD Scale</th>
+                    <th data-sort="latency_ms">Latencia</th>
+                </tr></thead><tbody></tbody></table></div>
+            </div>
+        </div>
+        <div id="system" class="tab-pane">
+            <div class="system-grid">
+                <div class="card"><h2>Procesador</h2><div class="meter"><div class="meter-bar" id="cpu-meter" style="width:0%"></div></div><span class="meter-value" id="cpu-value">--%</span></div>
+                <div class="card"><h2>Memoria RAM</h2><div class="meter"><div class="meter-bar" id="memory-meter" style="width:0%"></div></div><span class="meter-value" id="memory-value">--%</span><small id="memory-detail">-- GB / -- GB</small></div>
+                <div class="card"><h2>Disco</h2><div class="meter"><div class="meter-bar" id="disk-meter" style="width:0%"></div></div><span class="meter-value" id="disk-value">--%</span><small id="disk-detail">-- GB / -- GB</small></div>
+                <div class="card"><h2>Servicio Orion</h2><div class="service-status"><span class="badge" id="service-status-detail">--</span><p>Servidor: <strong id="hostname">--</strong></p><p>Tiempo activo: <strong id="uptime">--</strong></p></div></div>
+            </div>
+        </div>
+    </main>
+    <footer class="footer"><span>Orion V20.9 — Paper Trading Engine</span><span class="footer-time" id="last-update">--:--:--</span></footer>
+</div>
+{% endif %}
+<script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+</body>
+</html>

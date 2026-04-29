@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Orion Dashboard V20.9</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+</head>
+<body>
+{% if not session.get('authenticated') %}
+<div class="login-container">
+    <div class="login-box">
+        <div class="login-header">
+            <div class="logo-container">
+                <svg width="80" height="90" viewBox="0 0 80 90" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M40 2 L74 22 L74 62 L40 82 L6 62 L6 22 Z" stroke="#00a8ff" stroke-width="1.5" fill="none" opacity="0.3"/>
+                    <path d="M40 12 L64 27 L64 57 L40 72 L16 57 L16 27 Z" stroke="#00a8ff" stroke-width="2" fill="rgba(0,119,255,0.05)"/>
+                    <line x1="40" y1="12" x2="40" y2="2" stroke="#00a8ff" stroke-width="1" opacity="0.5"/>
+                    <line x1="64" y1="27" x2="74" y2="22" stroke="#00a8ff" stroke-width="1" opacity="0.5"/>
+                    <line x1="64" y1="57" x2="74" y2="62" stroke="#00a8ff" stroke-width="1" opacity="0.5"/>
+                    <line x1="40" y1="72" x2="40" y2="82" stroke="#00a8ff" stroke-width="1" opacity="0.5"/>
+                    <line x1="16" y1="57" x2="6" y2="62" stroke="#00a8ff" stroke-width="1" opacity="0.5"/>
+                    <line x1="16" y1="27" x2="6" y2="22" stroke="#00a8ff" stroke-width="1" opacity="0.5"/>
+                    <circle cx="40" cy="12" r="2.5" fill="#00a8ff"/>
+                    <circle cx="64" cy="27" r="2.5" fill="#00a8ff"/>
+                    <circle cx="64" cy="57" r="2.5" fill="#00a8ff"/>
+                    <circle cx="40" cy="72" r="2.5" fill="#00a8ff"/>
+                    <circle cx="16" cy="57" r="2.5" fill="#00a8ff"/>
+                    <circle cx="16" cy="27" r="2.5" fill="#00a8ff"/>
+                    <circle cx="40" cy="42" r="6" fill="none" stroke="#00e5ff" stroke-width="1.5" opacity="0.8"/>
+                    <circle cx="40" cy="42" r="2.5" fill="#00e5ff"/>
+                    <line x1="40" y1="12" x2="40" y2="36" stroke="#00a8ff" stroke-width="0.8" opacity="0.3"/>
+                    <line x1="64" y1="27" x2="46" y2="39" stroke="#00a8ff" stroke-width="0.8" opacity="0.3"/>
+                    <line x1="64" y1="57" x2="46" y2="45" stroke="#00a8ff" stroke-width="0.8" opacity="0.3"/>
+                    <line x1="40" y1="72" x2="40" y2="48" stroke="#00a8ff" stroke-width="0.8" opacity="0.3"/>
+                    <line x1="16" y1="57" x2="34" y2="45" stroke="#00a8ff" stroke-width="0.8" opacity="0.3"/>
+                    <line x1="16" y1="27" x2="34" y2="39" stroke="#00a8ff" stroke-width="0.8" opacity="0.3"/>
+                    <defs><filter id="glow"><feGaussianBlur stdDeviation="2" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>
+                    <circle cx="40" cy="42" r="2.5" fill="#00e5ff" filter="url(#glow)"/>
+                </svg>
+            </div>
+            <h1>Orion Dashboard</h1>
+            <p>V20.9 — Paper Trading Monitor</p>
+        </div>
+        {% with messages = get_flashed_messages() %}
+            {% if messages %}
+                <div class="alert error">{{ messages[0] }}</div>
+            {% endif %}
+        {% endwith %}
+        <form method="POST" action="{{ url_for('login') }}">
+            <div class="form-group">
+                <label for="password">Password</label>
+                <input type="password" id="password" name="password" required autocomplete="current-password" autofocus>
+            </div>
+            {% if turnstile_site_key %}
+            <div class="cf-turnstile" data-sitekey="{{ turnstile_site_key }}" data-theme="dark"></div>
+            {% endif %}
+            <button type="submit" class="btn btn-primary btn-block">Login</button>
+        </form>
+    </div>
+</div>
+{% if turnstile_site_key %}
+<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+{% endif %}
+{% else %}
+<div class="container">
+    <header class="header">
+        <div class="header-left">
+            <h1>🚀 Orion V20.9</h1>
+            <span class="badge" id="service-status">Loading...</span>
+        </div>
+        <div class="header-right">
+            <span class="last-update" id="last-update">Never</span>
+            <a href="{{ url_for('logout') }}" class="btn btn-secondary btn-sm">Logout</a>
+        </div>
+    </header>
+    <nav class="tabs">
+        <button class="tab-btn active" data-tab="overview">📊 Overview</button>
+        <button class="tab-btn" data-tab="charts">📈 Charts</button>
+        <button class="tab-btn" data-tab="trades">📋 Trade Log</button>
+        <button class="tab-btn" data-tab="system">⚙️ System</button>
+    </nav>
+    <main class="tab-content">
+        <div id="overview" class="tab-pane active">
+            <div class="card portfolio-card">
+                <h2>Portfolio Summary</h2>
+                <div class="portfolio-grid">
+                    <div class="metric"><span class="label">Total Balance</span><span class="value" id="portfolio-balance">$--</span></div>
+                    <div class="metric"><span class="label">Total P&L</span><span class="value" id="portfolio-pnl">--%</span></div>
+                    <div class="metric"><span class="label">Step Count</span><span class="value" id="step-count">--</span></div>
+                    <div class="metric"><span class="label">Last Update</span><span class="value" id="state-update">--</span></div>
+                </div>
+            </div>
+            <div class="asset-cards" id="asset-cards"></div>
+            <div class="card"><h2>Portfolio Allocation</h2><div class="chart-container"><canvas id="allocation-chart"></canvas></div></div>
+        </div>
+        <div id="charts" class="tab-pane">
+            <div class="chart-row"><div class="card"><h2>Probabilidad de Alta Volatilidad (IC)</h2><div class="chart-container tall"><canvas id="proba-chart"></canvas></div></div></div>
+            <div class="chart-row">
+                <div class="card"><h2>Position History</h2><div class="chart-container"><canvas id="position-chart"></canvas></div></div>
+                <div class="card"><h2>Balance History</h2><div class="chart-container"><canvas id="balance-chart"></canvas></div></div>
+            </div>
+            <div class="chart-row"><div class="card"><h2>Drawdown</h2><div class="chart-container"><canvas id="drawdown-chart"></canvas></div></div></div>
+        </div>
+        <div id="trades" class="tab-pane">
+            <div class="card">
+                <div class="toolbar">
+                    <label>Filter by Asset:<select id="log-asset-filter"><option value="">All</option><option value="ETH/USDT">ETH/USDT</option><option value="BTC/USDT">BTC/USDT</option><option value="SOL/USDT">SOL/USDT</option></select></label>
+                    <button class="btn btn-primary btn-sm" id="refresh-log">Refresh</button>
+                </div>
+                <div class="table-responsive">
+                    <table class="data-table" id="trade-log-table">
+                        <thead><tr><th data-sort="timestamp">Timestamp</th><th data-sort="asset">Asset</th><th data-sort="proba">Proba</th><th data-sort="position">Position</th><th data-sort="price">Price</th><th data-sort="pnl_pct">P&L %</th><th data-sort="pnl_usd">P&L $</th><th data-sort="balance">Balance</th><th data-sort="dd_pct">DD %</th></tr></thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        <div id="system" class="tab-pane">
+            <div class="system-grid">
+                <div class="card"><h2>CPU</h2><div class="meter"><div class="meter-bar" id="cpu-meter"></div></div><span class="meter-value" id="cpu-value">--%</span></div>
+                <div class="card"><h2>Memory</h2><div class="meter"><div class="meter-bar" id="memory-meter"></div></div><span class="meter-value" id="memory-value">--%</span><small id="memory-detail">-- GB / -- GB</small></div>
+                <div class="card"><h2>Disk</h2><div class="meter"><div class="meter-bar" id="disk-meter"></div></div><span class="meter-value" id="disk-value">--%</span><small id="disk-detail">-- GB / -- GB</small></div>
+                <div class="card"><h2>Orion Service</h2><div class="service-status"><span class="badge" id="service-status-detail">--</span><p>Host: <strong id="hostname">--</strong></p><p>Uptime: <strong id="uptime">--</strong></p></div></div>
+            </div>
+        </div>
+    </main>
+</div>
+{% endif %}
+<script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+</body>
+</html>
