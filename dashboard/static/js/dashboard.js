@@ -36,6 +36,9 @@ function initVersionToggle(){
             currentVersion=ver;
             el('version-display',ver==='v209'?'V20.9':'V21.0');
             document.querySelectorAll('.v21-only').forEach(function(el){el.style.display=ver==='v21'?'':'none';});
+            // AGREGAR: ocultar comparison card al volver a V20.9
+            var cc=document.getElementById('comparison-card');
+            if(cc) cc.style.display=ver==='v21'?'block':'none';
             fetchStatus();fetchHistory();
             if(ver==='v21')fetchComparison();
         });
@@ -60,11 +63,12 @@ function initTabs(){
 
 /* ═══ STATUS (state JSON) ═══ */
 function fetchStatus(){
-    var endpoint=currentVersion==='v209'?'/api/status':'/api/v21/status';
+    var ver=currentVersion;  // capturar versión al inicio
+    var endpoint=ver==='v209'?'/api/status':'/api/v21/status';
     fetch(endpoint).then(function(r){if(!r.ok)throw new Error();return r.json();})
     .then(function(d){
+        if(ver!==currentVersion) return;  // descartar si la versión cambió
         if(d.error){
-            // V21 state file not found yet — show waiting message
             el('portfolio-balance','Esperando datos...');
             el('portfolio-pnl','--');
             el('portfolio-peak','--');
@@ -76,14 +80,14 @@ function fetchStatus(){
             updateBadge('error');
             return;
         }
-        stateData[currentVersion]=d;
+        stateData[ver]=d;  // usar 'ver', no 'currentVersion'
         renderStatus(d);
         renderAssetState(d);
         updateBadge('activo');
     })
     .catch(function(){
+        if(ver!==currentVersion) return;  // descartar si cambió
         updateBadge('error');
-        // LIMPIAR datos del DOM cuando falla
         el('portfolio-balance','Esperando datos...');
         el('portfolio-pnl','--');
         el('portfolio-peak','--');
@@ -264,12 +268,19 @@ function renderAllocChart(prices){
 
 /* ═══ HISTORY (CSV log) ═══ */
 function fetchHistory(){
-    var endpoint=currentVersion==='v209'?'/api/history?limit=500':'/api/v21/history?limit=500';
+    var ver=currentVersion;  // capturar
+    var endpoint=ver==='v209'?'/api/history?limit=500':'/api/v21/history?limit=500';
     fetch(endpoint).then(function(r){if(!r.ok)throw new Error();return r.json();})
-    .then(function(d){historyData[currentVersion]=d;renderTradeLog();renderCharts();})
+    .then(function(d){
+        if(ver!==currentVersion) return;  // descartar stale
+        historyData[ver]=d;  // usar 'ver'
+        renderTradeLog();
+        renderCharts();
+    })
     .catch(function(e){
+        if(ver!==currentVersion) return;
         console.warn('History:',e);
-        historyData[currentVersion]=[];
+        historyData[ver]=[];
         renderTradeLog();
         renderCharts();
     });
