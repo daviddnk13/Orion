@@ -5,6 +5,7 @@
 import os
 import sys
 import pickle
+import time
 import numpy as np
 import pandas as pd
 import ccxt
@@ -25,7 +26,10 @@ K = 1.0  # volatility multiplier
 D = 0.5  # threshold
 
 # Assets
-ASSETS = ['ETH-USDT', 'BTC-USDT', 'SOL-USDT']
+ASSETS = ['ETH/USDT', 'BTC/USDT', 'SOL/USDT']
+
+# Data directory
+DATA_DIR = os.path.expanduser('~/orion/data')
 
 # Feature config
 LAG_FEATURES = ['bb_width', 'atr_compression', 'vol_regime', 'volume_ratio', 'rsi_14']
@@ -73,21 +77,55 @@ def send_telegram(message):
 
 
 def fetch_all_ohlcv(symbol, timeframe='4h', limit=300):
-    exchange = ccxt.okx()
-    all_candles = []
-    since = None
-    while True:
-        candles = exchange.fetch_ohlcv(symbol, timeframe, since=since, limit=limit)
-        if not candles:
-            break
-        all_candles.extend(candles)
-        if len(candles) < limit:
-            break
-        since = candles[-1][0] + 1
-    df = pd.DataFrame(all_candles, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-    df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
-    df = df.sort_values('timestamp').reset_index(drop=True)
-    return df
+    """
+    Descarga datos de OKX. Si falla, intenta leer CSV local.
+    """
+    try:
+        exchange = ccxt.okx()
+        all_data = []
+        since = exchange.parse8601('2022-01-01T00:00:00Z')
+
+        while True:
+            try:
+                ohlcv = exchange.fetch_ohlcv(symbol, timeframe, since=since, limit=limit)
+            except Exception as e:
+                print(f'OKX fetch error for {symbol}: {e}')
+                raise e
+
+            if not ohlcv:
+                break
+            all_data.extend(ohlcv)
+            since = ohlcv[-1][0] + 1
+            if len(ohlcv) < limit:
+                break
+            time.sleep(0.1)  # rate limit
+
+            if len(all_data) % 3000 == 0:
+                print(f'  {symbol}: {len(all_data)} barras descargadas...')
+
+        df = pd.DataFrame(all_data, columns=['timestamp','open','high','low','close','volume'])
+        df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+        df = df.drop_duplicates(subset='timestamp').sort_values('timestamp').reset_index(drop=True)
+
+        print(f'Descargado {symbol}: {len(df)} barras')
+        return df
+
+    except Exception as e:
+        print(f'OKX falló para {symbol}: {e}')
+        print('Intentando fallback CSV...')
+
+        safe_symbol = symbol.replace('/', '_')
+        csv_path = os.path.join(DATA_DIR, f'{safe_symbol}_4h.csv')
+
+        if os.path.exists(csv_path):
+            df = pd.read_csv(csv_path)
+            df['timestamp'] = pd.to_datetime(df['timestamp'])
+            print(f'Cargado desde CSV: {csv_path} ({len(df)} filas)')
+            return df
+        else:
+            raise FileNotFoundError(
+                f'No se pudo descargar de OKX ni encontrar CSV en {csv_path}'
+            )
 
 
 def compute_target(df, horizon, k, d):
@@ -173,7 +211,7 @@ def analyze_label_autocorr(df, asset):
     median_block_size = np.median(block_sizes)
     max_block_size = np.max(block_sizes)
     p90_block_size = np.percentile(block_sizes, 90)
-    pct_isolated = np.mean([1 for s in block_sizes if s == 1])
+    pct_isolated = sum(1 for s in block_sizes if s == 1) / len(block_sizes) if block_sizes else 0
     autocorr_lag1 = np.corrcoef(edge[:-1], edge[1:])[0, 1]
     return {
         'asset': asset,
@@ -188,14 +226,14 @@ def analyze_label_autocorr(df, asset):
     }
 
 
-def phase0_autocorrelation_gate():
+def phase0_autocorrelation_gate(all_data):
     print("\n" + "="*60)
     print("FASE 0: AUTOCORRELACIÓN DE LABELS (GATE OBLIGATORIO)")
     print("="*60 + "\n")
     results = []
     for asset in ASSETS:
         print(f"Procesando {asset}...")
-        df = fetch_all_ohlcv(asset, '4h', limit=300)
+        df = all_data[asset].copy()
         df = compute_target(df, horizon=H, k=K, d=D)
 
         # SANITY CHECK OBLIGATORIO
@@ -236,7 +274,7 @@ def compute_features(df):
     df['bb_upper'] = df['sma20'] + 2 * df['std20']
     df['bb_lower'] = df['sma20'] - 2 * df['std20']
     df['bb_width'] = (df['bb_upper'] - df['bb_lower']) / df['sma20']
-    df['bb_width_hist'] = df['bb_width'].rolling(500).quantile(0.2)
+    df['bb_width_hist'] = df['bb_width'].rolling(500, min_periods=120).quantile(0.2)
     df['squeeze_duration'] = (df['bb_width'] < df['bb_width_hist']).astype(int)
     df['squeeze_duration'] = df['squeeze_duration'].groupby((df['squeeze_duration'] != df['squeeze_duration'].shift()).cumsum()).cumsum()
     df['tr'] = np.maximum(df['high'] - df['low'], np.maximum(abs(df['high'] - df['close'].shift(1)), abs(df['low'] - df['close'].shift(1))))
@@ -253,14 +291,16 @@ def compute_features(df):
     loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
     rs = gain / loss
     df['rsi_14'] = 100 - (100 / (1 + rs))
-    df['plus_dm'] = np.where((df['high'] - df['high'].shift(1)) > (df['low'].shift(1) - df['low']), df['high'] - df['high'].shift(1), 0)
-    df['minus_dm'] = np.where((df['low'].shift(1) - df['low']) > (df['high'] - df['high'].shift(1)), df['low'].shift(1) - df['low'], 0)
+    plus_dm_raw = df['high'] - df['high'].shift(1)
+    minus_dm_raw = df['low'].shift(1) - df['low']
+    df['plus_dm'] = np.where((plus_dm_raw > minus_dm_raw) & (plus_dm_raw > 0), plus_dm_raw, 0)
+    df['minus_dm'] = np.where((minus_dm_raw > plus_dm_raw) & (minus_dm_raw > 0), minus_dm_raw, 0)
     df['plus_di'] = 100 * (df['plus_dm'].rolling(14).mean() / df['atr14'])
     df['minus_di'] = 100 * (df['minus_dm'].rolling(14).mean() / df['atr14'])
     df['dx'] = 100 * abs(df['plus_di'] - df['minus_di']) / (df['plus_di'] + df['minus_di'])
     df['trend_strength'] = df['dx'].rolling(14).mean()
     df['price_slope_20'] = df['close'].rolling(20).apply(lambda x: np.polyfit(range(len(x)), x, 1)[0])
-    df['rsi_slope_20'] = df['rsi_14'].rolling(20).apply(lambda x: np.polyfit(range(len(x)), x, 1)[0])
+    df['rsi_slope_20'] = df['rsi_14'].rolling(20).apply(lambda x: np.polyfit(range(len(x)), x.dropna(), 1)[0] if len(x.dropna()) > 1 else 0)
     df['momentum_divergence'] = np.sign(df['price_slope_20']) - np.sign(df['rsi_slope_20'])
     df['vol_of_vol'] = df['atr14'].rolling(20).std()
     for feat in LAG_FEATURES:
@@ -271,14 +311,13 @@ def compute_features(df):
     return df
 
 
-def phase1_feature_engineering():
+def phase1_feature_engineering(all_data):
     print("\n" + "="*60)
     print("FASE 1: FEATURE ENGINEERING (29 features)")
     print("="*60 + "\n")
-    all_data = {}
     for asset in ASSETS:
         print(f"Procesando {asset}...")
-        df = fetch_all_ohlcv(asset, '4h', limit=300)
+        df = all_data[asset]
         df = compute_target(df, horizon=H, k=K, d=D)
         df = compute_features(df)
         df['asset'] = asset
@@ -545,11 +584,26 @@ def main():
     print(f"Inicio: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"Assets: {', '.join(ASSETS)}")
     print(f"Target params: h={H}, k={K}, d={D}")
-    gate_passed, autocorr_stats = phase0_autocorrelation_gate()
+
+    # Descargar datos UNA sola vez
+    print("\nDescargando datos de OKX...")
+    all_data = {}
+    for asset in ASSETS:
+        try:
+            df = fetch_all_ohlcv(asset, timeframe='4h', limit=300)
+            all_data[asset] = df
+        except Exception as e:
+            print(f'ERROR: No se pudieron obtener datos para {asset}: {e}')
+            return
+
+    print(f"Datos descargados: {len(all_data)} assets")
+    print()
+
+    gate_passed, autocorr_stats = phase0_autocorrelation_gate(all_data)
     if not gate_passed:
         print("\nABORT: Fase 0 falló - No entrenar modelo")
         return
-    all_data = phase1_feature_engineering()
+    all_data = phase1_feature_engineering(all_data)
     train_data, test_data, feature_cols = prepare_train_test(all_data)
     models, all_results, all_importance = phase2_training(train_data, test_data, feature_cols)
     verdicts = check_kill_switches(all_results)
